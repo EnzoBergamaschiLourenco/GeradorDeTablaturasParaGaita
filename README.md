@@ -26,11 +26,11 @@ Execute este comando para baixar todas as bibliotecas necessárias (React Router
 Bash
 npm install
 4. Configurar Variáveis de Ambiente
-Crie um arquivo chamado .env na raiz da pasta frontend e adicione suas credenciais do Supabase:
+Crie um arquivo chamado .env.local na raiz da pasta frontend e adicione suas credenciais do Supabase:
 
 Plaintext
-VITE_SUPABASE_URL=sua_url_aqui
-VITE_SUPABASE_ANON_KEY=sua_chave_anon_aqui
+VITE_SUPABASE_URL=<SUBSTITUTE_SUPABASE_URL>
+VITE_SUPABASE_PUBLISHABLE_KEY=<SUBSTITUTE_SUPABASE_PUBLISHABLE_KEY>
 5. Rodar o site
 Agora, inicie o servidor de desenvolvimento:
 
