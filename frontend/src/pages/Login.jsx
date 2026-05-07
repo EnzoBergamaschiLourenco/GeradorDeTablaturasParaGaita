@@ -43,6 +43,7 @@ export default function Login() {
         alert("E-mail ou senha incorretos.");
       } else {
         alert("Login realizado!");
+        localStorage.setItem('usuarioLogado', JSON.stringify({ nome: data.nome, email: data.email, foto: data.foto_perfil }));
         navigate('/'); // Volta para o menu
       }
     }
