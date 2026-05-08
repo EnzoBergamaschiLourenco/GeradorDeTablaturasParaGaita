@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Menu from './pages/Menu';
 import Login from './pages/Login';
+import Perfil from './pages/Perfil';
 
 function App() {
   return (
@@ -8,7 +9,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Menu />} />
         <Route path="/login" element={<Login />} />
-        {/* Futuramente adicione aqui rotas para cadastro e recuperação */}
+        <Route path="/perfil" element={<Perfil />} />
       </Routes>
     </Router>
   );
