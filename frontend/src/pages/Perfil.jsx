@@ -172,7 +172,6 @@ export default function Perfil() {
               Editar Perfil
             </button>
             
-            {/* Link Deletar Conta solicitado */}
             <span 
               onClick={() => setIsDeletingAccount(true)}
               style={{ color: '#dc3545', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', marginTop: '5px' }}
@@ -181,6 +180,15 @@ export default function Perfil() {
             </span>
           </>
         )}
+
+        {/* OPÇÃO ADICIONADA: Link para Voltar ao Menu */}
+        <span 
+          onClick={() => navigate('/')}
+          style={{ color: '#666', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', marginTop: '10px' }}
+        >
+          Voltar ao Menu
+        </span>
+
       </div>
     </div>
   );

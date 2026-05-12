@@ -108,6 +108,15 @@ export default function Login() {
         >
           {isRegistering ? 'Voltar para o Login' : 'Criar uma conta agora'}
         </button>
+
+        {/* OPÇÃO ADICIONADA: Link para Voltar ao Menu */}
+        <span 
+          onClick={() => navigate('/')}
+          style={{ color: '#666', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', marginTop: '15px' }}
+        >
+          Voltar ao Menu
+        </span>
+
       </div>
     </div>
   );
