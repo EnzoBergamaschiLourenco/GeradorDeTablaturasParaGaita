@@ -7,6 +7,7 @@ export default function CriarTablatura() {
   const [usuario, setUsuario] = useState(null); // Estado para armazenar o usuário
 
   const [musica, setMusica] = useState('');
+  const [autorMusica, setAutorMusica] = useState(''); // Novo estado para o autor da música
   const [midiLink, setMidiLink] = useState('');
   const [conteudo, setConteudo] = useState('');
 
@@ -27,7 +28,8 @@ export default function CriarTablatura() {
     }
 
     setLoading(true);
-    console.log({ musica, midiLink, conteudo, autor: usuario.nome });
+    // Incluído 'autorMusica' no log dos dados enviados
+    console.log({ musica, autorMusica, midiLink, conteudo, criador: usuario.nome });
     
     setTimeout(() => {
       alert("Tablatura salva com sucesso!");
@@ -66,6 +68,15 @@ export default function CriarTablatura() {
           placeholder="Nome da Música" 
           value={musica}
           onChange={(e) => setMusica(e.target.value)}
+          style={{ padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }}
+        />
+
+        {/* Novo input para o Autor da Música */}
+        <input 
+          type="text" 
+          placeholder="Autor da Música" 
+          value={autorMusica}
+          onChange={(e) => setAutorMusica(e.target.value)}
           style={{ padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }}
         />
 

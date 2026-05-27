@@ -7,10 +7,11 @@ export default function EditarTablatura() {
   const [usuario, setUsuario] = useState(null);
   const [conteudo, setConteudo] = useState('');
 
-  // Dados fixos (Simulando o que viria da tablatura selecionada)
+  // Dados fixos (Simulando o que viria da tablatura selecionada com o autor incluso)
   const tabData = {
     criador: "João da Gaita",
-    musica: "Hallelujah"
+    musica: "Hallelujah",
+    autorMusica: "Leonard Cohen" // Adicionado o autor da música aqui
   };
 
   // Verifica se o usuário está logado
@@ -29,8 +30,8 @@ export default function EditarTablatura() {
     }
 
     setLoading(true);
-    // Aqui entraria a lógica de UPDATE no banco de dados
-    console.log({ musica: tabData.musica, conteudo, editor: usuario.nome });
+    // Incluído 'autorMusica' no log dos dados salvos
+    console.log({ musica: tabData.musica, autorMusica: tabData.autorMusica, conteudo, editor: usuario.nome });
     
     setTimeout(() => {
       alert("Edição salva com sucesso!");
@@ -48,6 +49,8 @@ export default function EditarTablatura() {
         {/* Cabeçalho igual ao "Visualizar" */}
         <div style={{ textAlign: 'left', padding: '15px', backgroundColor: '#f9f9f9', borderRadius: '5px', border: '1px solid #ddd' }}>
           <p style={{ margin: '5px 0' }}><strong>Música:</strong> {tabData.musica}</p>
+          {/* Nova linha exibindo o Autor da Música embaixo do nome da música */}
+          <p style={{ margin: '5px 0' }}><strong>Autor da Música:</strong> {tabData.autorMusica}</p>
           <p style={{ margin: '5px 0' }}><strong>Criado por:</strong> {tabData.criador}</p>
         </div>
 

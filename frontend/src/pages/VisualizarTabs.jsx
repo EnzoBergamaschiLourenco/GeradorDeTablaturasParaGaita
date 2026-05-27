@@ -18,6 +18,7 @@ export default function VisualizarTabs() {
   const tabData = {
     criador: "João da Gaita",
     musica: "Hallelujah",
+    autorMusica: "Leonard Cohen",
     conteúdo: `
     +5   -5   -5   -5   -5   +5
     That Da-vid played and it 
@@ -45,7 +46,6 @@ export default function VisualizarTabs() {
     }
   };
 
-  // Função para ir para a página de edição
   const handleEditar = () => {
     if (usuario) {
       navigate('/EditarTabs');
@@ -53,6 +53,25 @@ export default function VisualizarTabs() {
       alert("⚠️ Você precisa estar logado para editar!");
       navigate('/login');
     }
+  };
+
+  // Nova função para tratar a exclusão da tablatura
+  const handleExcluir = () => {
+    if (!usuario) {
+      alert("⚠️ Você precisa estar logado para excluir uma tablatura!");
+      navigate('/login');
+      return;
+    }
+
+    // Abre a caixa de confirmação nativa (Sim/Não)
+    const confirmou = window.confirm("Tem certeza que deseja excluir essa tablatura?");
+    
+    if (confirmou) {
+      alert("Tablatura excluída com sucesso!");
+      // Aqui você inseriria a lógica para deletar no banco de dados
+      navigate('/'); // Redireciona para a página principal após excluir
+    }
+    // Caso escolha "Não", a caixa apenas fecha e nada acontece
   };
 
   return (
@@ -65,6 +84,7 @@ export default function VisualizarTabs() {
         {/* Informações do Criador */}
         <div style={{ textAlign: 'left', padding: '15px', backgroundColor: '#f9f9f9', borderRadius: '5px', border: '1px solid #ddd' }}>
           <p style={{ margin: '5px 0' }}><strong>Música:</strong> {tabData.musica}</p>
+          <p style={{ margin: '5px 0' }}><strong>Autor da Música:</strong> {tabData.autorMusica}</p>
           <p style={{ margin: '5px 0' }}><strong>Criado por:</strong> {tabData.criador}</p>
         </div>
 
@@ -121,7 +141,7 @@ export default function VisualizarTabs() {
           Personalizar Tablatura
         </button>
 
-        {/* Botão Editar (Mesmo formato que o Personalizar) */}
+        {/* Botão Editar */}
         <button 
           onClick={handleEditar}
           style={{ 
@@ -136,6 +156,23 @@ export default function VisualizarTabs() {
           }}
         >
           Editar Tablatura
+        </button>
+
+        {/* Novo Botão Excluir (Posicionado embaixo do Editar) */}
+        <button 
+          onClick={handleExcluir}
+          style={{ 
+            padding: '10px', 
+            backgroundColor: '#dc3545', 
+            color: 'white', 
+            border: 'none', 
+            cursor: 'pointer',
+            fontSize: '16px',
+            fontWeight: 'bold',
+            borderRadius: '4px'
+          }}
+        >
+          Excluir Tablatura
         </button>
 
         {/* Link para Voltar */}
