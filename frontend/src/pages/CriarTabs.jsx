@@ -1,157 +1,381 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../supabaseClient';
 
-export default function CriarTablatura() {
+export default function CriarTabs() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [usuario, setUsuario] = useState(null); // Estado para armazenar o usuário
+  const [usuario, setUsuario] = useState(null);
 
   const [musica, setMusica] = useState('');
-  const [autorMusica, setAutorMusica] = useState(''); // Novo estado para o autor da música
-  const [midiLink, setMidiLink] = useState('');
-  const [conteudo, setConteudo] = useState('');
+  const [autorMusica, setAutorMusica] = useState('');
+  const [letra, setLetra] = useState(''); 
 
-  // Verifica se o usuário está logado ao carregar a página
+  // Estados de controle do MIDI
+  const [musicaId, setMusicaId] = useState(null);
+  const [arquivosMidi, setArquivosMidi] = useState([]);
+  const [midiSelecionado, setMidiSelecionado] = useState(null); // NOVO: Controla o MIDI escolhido
+  const [uploadingMidi, setUploadingMidi] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const [sugestoes, setSugestoes] = useState([]);
+  const debounceRef = useRef(null);
+
   useEffect(() => {
     const dadosSalvos = localStorage.getItem('usuarioLogado');
-    if (dadosSalvos) {
-      setUsuario(JSON.parse(dadosSalvos));
-    }
+    if (dadosSalvos) setUsuario(JSON.parse(dadosSalvos));
   }, []);
 
-  const handleSalvar = () => {
-    // LÓGICA DE VERIFICAÇÃO: Impede salvar se não estiver logado
+  // ===== BUSCA COM DEBOUNCE PARA SUGESTÕES =====
+  useEffect(() => {
+    if (!musica || musica.trim().length < 2) {
+      setSugestoes([]);
+      return;
+    }
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    debounceRef.current = setTimeout(async () => {
+      const termo = musica.trim();
+      if (termo.length < 2) return;
+
+      const { data, error } = await supabase
+        .from('musicas')
+        .select('id, nome, autor, letra')
+        .ilike('nome', `%${termo}%`)
+        .limit(5);
+
+      if (error) {
+        console.error("Erro Supabase:", error);
+        return;
+      }
+      setSugestoes(data || []);
+    }, 750);
+
+    return () => clearTimeout(debounceRef.current);
+  }, [musica]);
+
+  const selecionarSugestao = (item) => {
+    setMusica(item.nome);
+    setAutorMusica(item.autor || '');
+    setLetra(item.letra || ''); 
+    setMusicaId(item.id);
+    setMidiSelecionado(null);
+    setSugestoes([]);
+  };
+
+  // ===== BUSCA DE MATCH EXATO PARA MIDIs =====
+  const buscarMidis = async (id) => {
+    const { data, error } = await supabase
+      .from('arquivos_midi')
+      .select('id, arquivo_midi, path')
+      .eq('musica_id', id);
+    
+    if (!error) {
+      setArquivosMidi(data || []);
+    }
+  };
+
+  // Trava os campos se a música já existir
+  useEffect(() => {
+    const checkExactMatch = async () => {
+      if (!musica.trim() || !autorMusica.trim()) {
+        setMusicaId(null);
+        setArquivosMidi([]);
+        setMidiSelecionado(null);
+        return;
+      }
+
+      const { data } = await supabase
+        .from('musicas')
+        .select('id, letra')
+        .eq('nome', musica.trim())
+        .eq('autor', autorMusica.trim())
+        .maybeSingle();
+
+      if (data) {
+        setMusicaId(data.id);
+        if (data.letra) setLetra(data.letra); // Sincroniza a letra oficial do banco
+        buscarMidis(data.id);
+      } else {
+        setMusicaId(null);
+        setArquivosMidi([]);
+        setMidiSelecionado(null);
+      }
+    };
+
+    const timeout = setTimeout(checkExactMatch, 500);
+    return () => clearTimeout(timeout);
+  }, [musica, autorMusica]);
+
+  // ===== UPLOAD DO MIDI =====
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setUploadingMidi(true);
+    let currentMusicaId = musicaId;
+
+    try {
+      if (!currentMusicaId) {
+        if (!musica.trim() || !autorMusica.trim() || !letra.trim()) {
+          alert("⚠️ Preencha Nome, Autor e Letra da música para adicionar um MIDI.");
+          setUploadingMidi(false);
+          return;
+        }
+
+        const { data: novaMusica, error: errMusica } = await supabase
+          .from('musicas')
+          .insert([{ nome: musica.trim(), autor: autorMusica.trim(), letra: letra.trim() }])
+          .select('id')
+          .single();
+
+        if (errMusica) throw errMusica;
+        currentMusicaId = novaMusica.id;
+        setMusicaId(currentMusicaId);
+      }
+
+      const fileName = `${Date.now()}_${file.name}`;
+      const filePath = `${currentMusicaId}/${fileName}`;
+
+      const { error: uploadError, data } = await supabase.storage
+        .from('Arquivos MIDI')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: novoMidi, error: insertError } = await supabase
+        .from('arquivos_midi')
+        .insert([{ arquivo_midi: file.name, musica_id: currentMusicaId, path: data.path }])
+        .select()
+        .single();
+      if (insertError) throw insertError;
+      
+
+      
+      buscarMidis(currentMusicaId);
+      setMidiSelecionado(novoMidi); // Auto-seleciona o MIDI recém enviado
+
+    } catch (error) {
+      console.error("Erro no upload:", error);
+      alert("Erro ao processar o arquivo MIDI.");
+    } finally {
+      setUploadingMidi(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // ===== AÇÃO DE REDIRECIONAR / MONTAR TABLATURA =====
+  const handleMontarTablatura = async () => {
     if (!usuario) {
-      alert("⚠️ Você precisa estar logado para criar e salvar tablaturas!");
+      alert("⚠️ Você precisa estar logado para montar tablaturas!");
       navigate('/login');
       return;
     }
 
+    if (!midiSelecionado) {
+      alert("⚠️ Selecione um arquivo MIDI na coluna da direita para prosseguir.");
+      return;
+    }
+
     setLoading(true);
-    // Incluído 'autorMusica' no log dos dados enviados
-    console.log({ musica, autorMusica, midiLink, conteudo, criador: usuario.nome });
-    
-    setTimeout(() => {
-      alert("Tablatura salva com sucesso!");
+    let currentMusicaId = musicaId;
+
+    try {
+      if (!currentMusicaId) {
+        if (!musica.trim() || !autorMusica.trim() || !letra.trim()) {
+          alert("⚠️ Preencha Nome, Autor e Letra da música.");
+          setLoading(false);
+          return;
+        }
+
+        const { data: novaMusica, error: errMusica } = await supabase
+          .from('musicas')
+          .insert([{ nome: musica.trim(), autor: autorMusica.trim(), letra: letra.trim() }])
+          .select('id')
+          .single();
+
+        if (errMusica) throw errMusica;
+        currentMusicaId = novaMusica.id;
+      }
+
+      // Envia TODAS as informações cruciais pelo Router State
+      navigate('/MontarTablatura', { 
+        state: { 
+          musicaId: currentMusicaId, 
+          nome: musica, 
+          autor: autorMusica,
+          letra: letra, // Agora a letra está indo!
+          midi: midiSelecionado // O MIDI selecionado vai junto
+        } 
+      });
+
+    } catch (error) {
+      console.error("Erro ao salvar música:", error);
+      alert("Houve um erro ao processar os dados.");
+    } finally {
       setLoading(false);
-      navigate('/');
-    }, 1000);
-  };
-
-  const infoMidi = () => {
-    alert(
-      "Como buscar o link MIDI:\n\n" +
-      "1. Acesse um site de biblioteca (ex: BitMidi).\n" +
-      "2. Pesquise a música desejada.\n" +
-      "3. Clique com o botão direito no botão de 'Download'.\n" +
-      "4. Selecione 'Copiar endereço do link' e cole aqui."
-    );
-  };
-
-  const infoNotas = () => {
-    alert(
-      "Tradução das Notas (Padrão):\n\n" +
-      "Números Positivos (+5): Soprar\n" +
-      "Números Negativos (-5): Aspirar\n" +
-      "Use espaços para alinhar a nota com a letra da música abaixo."
-    );
+    }
   };
 
   return (
-    <div style={{ textAlign: 'center', marginTop: '50px', fontFamily: 'Arial' }}>
-      <h2>Criar Nova Tablatura</h2>
-
-      <div style={{ display: 'flex', flexDirection: 'column', width: '350px', margin: '0 auto', gap: '10px' }}>
+    <div style={pageStyle}>
+      <div style={contentWrapper}>
         
-        <input 
-          type="text" 
-          placeholder="Nome da Música" 
-          value={musica}
-          onChange={(e) => setMusica(e.target.value)}
-          style={{ padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }}
-        />
+        {/* COLUNA ESQUERDA: FORMULÁRIO */}
+        <div style={leftColumn}>
+          <h2 style={{ color: '#007bff', marginBottom: 25, textAlign: 'center', fontWeight: 'bold', fontSize: '32px' }}>
+            Criar Nova Tablatura
+          </h2>
 
-        {/* Novo input para o Autor da Música */}
-        <input 
-          type="text" 
-          placeholder="Autor da Música" 
-          value={autorMusica}
-          onChange={(e) => setAutorMusica(e.target.value)}
-          style={{ padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }}
-        />
+          <div style={{ position: 'relative' }}>
+            <label style={labelStyle}>Nome da Música</label>
+            <input
+              style={inputStyle}
+              placeholder="Ex: Asa Branca"
+              value={musica}
+              onChange={(e) => setMusica(e.target.value)}
+            />
 
-        <input 
-          type="text" 
-          placeholder="URL do Arquivo MIDI (.mid)" 
-          value={midiLink}
-          onChange={(e) => setMidiLink(e.target.value)}
-          style={{ padding: '10px', borderRadius: '4px', border: '1px solid #ccc' }}
-        />
+            {sugestoes.length > 0 && (
+              <div style={suggestBox}>
+                {sugestoes.map((item, index) => (
+                  <div
+                    key={index}
+                    onClick={() => selecionarSugestao(item)}
+                    style={suggestItem}
+                    onMouseEnter={(e) => e.target.style.backgroundColor = '#f4f7fb'}
+                    onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                  >
+                    🎵 <strong style={{ color: '#333' }}>{item.nome}</strong>
+                    <small style={{ display: 'block', color: '#666', marginTop: 2 }}>{item.autor}</small>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-        <div style={{ display: 'flex', gap: '5px' }}>
-          <button 
-            onClick={infoMidi}
-            style={{ flex: 1, padding: '8px', fontSize: '12px', cursor: 'pointer', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px' }}
-          >
-            🔍 O que é MIDI?
+          <div>
+            <label style={labelStyle}>Autor da Música {musicaId && <span style={{color: '#007bff'}}>(Bloqueado)</span>}</label>
+            <input
+              style={{ ...inputStyle, backgroundColor: musicaId ? '#f1f5f9' : 'white', cursor: musicaId ? 'not-allowed' : 'text' }}
+              placeholder="Ex: Luiz Gonzaga"
+              value={autorMusica}
+              onChange={(e) => setAutorMusica(e.target.value)}
+              disabled={!!musicaId} // Bloqueia edição se música já existe
+            />
+          </div>
+
+          <div>
+            <label style={labelStyle}>
+              Letra da Música {musicaId && <span style={{color: '#007bff'}}>(Bloqueado)</span>}
+            </label>
+            <textarea
+              style={{ ...textareaStyle, backgroundColor: musicaId ? '#f1f5f9' : 'white', cursor: musicaId ? 'not-allowed' : 'text' }}
+              placeholder="Cole ou digite a letra da música aqui..."
+              value={letra}
+              onChange={(e) => setLetra(e.target.value)}
+              disabled={!!musicaId} // Bloqueia edição se música já existe
+            />
+          </div>
+
+          <button style={buttonStyle} onClick={handleMontarTablatura} disabled={loading}>
+            {loading ? 'Processando...' : 'MONTAR TABLATURA'}
           </button>
-          <button 
-            onClick={infoNotas}
-            style={{ flex: 1, padding: '8px', fontSize: '12px', cursor: 'pointer', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px' }}
-          >
-            🎵 Tradução Notas
-          </button>
+
+          {!usuario && <p style={{ color: '#ff4d4d', fontSize: 13, marginTop: 12, textAlign: 'center', fontWeight: 'bold' }}>* Login necessário para salvar</p>}
+          <p style={linkStyle} onClick={() => navigate('/')}>Cancelar e Voltar</p>
         </div>
 
-        <hr style={{ width: '100%', margin: '10px 0', border: '0.5px solid #eee' }} />
+        {/* COLUNA DIREITA */}
+        {musica.trim() && autorMusica.trim() && (
+          <div style={rightColumn}>
+            <h3 style={{ color: '#007bff', marginBottom: 25, textAlign: 'center', fontWeight: 'bold', fontSize: '22px' }}>
+              Arquivos MIDI: {musica}
+            </h3>
 
-        <textarea 
-          placeholder="Cole ou digite a tablatura aqui..." 
-          value={conteudo}
-          onChange={(e) => setConteudo(e.target.value)}
-          style={{ 
-            padding: '15px', 
-            height: '200px', 
-            borderRadius: '4px', 
-            border: '1px solid #e6db55', 
-            backgroundColor: '#fffbe6',
-            color: '#000',
-            fontFamily: 'monospace',
-            fontSize: '15px',
-            resize: 'vertical'
-          }}
-        />
+            <div style={midiListContainer}>
+              
+              {/* Lógica condicional: Se tem um MIDI selecionado, exibe apenas ele em destaque */}
+              {midiSelecionado ? (
+                <div style={{ ...midiCardStyle, border: '2px solid #007bff', backgroundColor: '#eff6ff' }}>
+                  <div style={iconBoxPrimary}>🎵</div>
+                  <div style={{ flex: 1, paddingLeft: 15, textAlign: 'left', overflow: 'hidden' }}>
+                    <span style={{ color: '#333', fontWeight: 'bold', display: 'block', fontSize: '14px' }}>
+                      {midiSelecionado.arquivo_midi}
+                    </span>
+                    <small style={{ color: '#007bff', fontSize: 12, fontWeight: 'bold' }}>MIDI Selecionado</small>
+                  </div>
+                  <button 
+                    style={{...useMidiButton, backgroundColor: '#dc3545', boxShadow: 'none'}} 
+                    onClick={() => setMidiSelecionado(null)}
+                  >
+                    Trocar
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Se NÃO tem MIDI selecionado, mostra o botão de Upload e a Lista */}
+                  <div style={midiCardStyle}>
+                    <div style={iconBoxPrimary}>+</div>
+                    <div style={{ flex: 1, paddingLeft: 15, textAlign: 'left' }}>
+                      <span style={{ color: '#333', fontWeight: 'bold', fontSize: '15px' }}>Adicionar Novo MIDI</span>
+                      <small style={{ display: 'block', color: '#666', fontSize: 12, marginTop: 2 }}>Fazer upload do arquivo .mid</small>
+                    </div>
+                    <button style={uploadButton} onClick={() => fileInputRef.current.click()} disabled={uploadingMidi}>
+                      {uploadingMidi ? '...' : 'Selecionar'}
+                    </button>
+                    <input type="file" ref={fileInputRef} style={{ display: 'none' }} accept=".mid,.midi" onChange={handleFileUpload} />
+                  </div>
 
-        <button 
-          onClick={handleSalvar} 
-          disabled={loading}
-          style={{ 
-            padding: '12px', 
-            backgroundColor: '#007bff', 
-            color: 'white', 
-            border: 'none', 
-            cursor: 'pointer',
-            fontWeight: 'bold',
-            marginTop: '10px'
-          }}
-        >
-          {loading ? 'Salvando...' : 'Salvar Tablatura'}
-        </button>
-
-        {/* Aviso discreto caso o usuário não esteja logado */}
-        {!usuario && (
-          <p style={{ color: 'red', fontSize: '12px', margin: '5px 0' }}>
-            * É necessário estar logado para salvar.
-          </p>
+                  {arquivosMidi.map((midi) => (
+                    <div key={midi.id} style={midiCardStyle}>
+                      <div style={iconBoxSecondary}>🎵</div>
+                      <div style={{ flex: 1, paddingLeft: 15, textAlign: 'left', overflow: 'hidden' }}>
+                        <span style={{ color: '#333', fontWeight: 'bold', display: 'block', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', fontSize: '14px' }}>
+                          {midi.arquivo_midi}
+                        </span>
+                        <small style={{ color: '#666', fontSize: 12 }}>Disponível no banco</small>
+                      </div>
+                      <button style={useMidiButton} onClick={() => setMidiSelecionado(midi)}>
+                        Usar
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
+              
+              {arquivosMidi.length === 0 && !midiSelecionado && (
+                <p style={{ color: '#666', textAlign: 'center', marginTop: 20, fontSize: 14, lineHeight: '1.5' }}>
+                  Nenhum arquivo MIDI encontrado.<br />
+                  {!musicaId && <strong style={{color: '#ff4d4d'}}>Insira a letra ao lado para liberar uploads!</strong>}
+                </p>
+              )}
+            </div>
+          </div>
         )}
 
-        <button 
-          onClick={() => navigate('/')}
-          style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', textDecoration: 'underline', fontSize: '14px' }}
-        >
-          Cancelar e Voltar
-        </button>
       </div>
     </div>
   );
 }
+
+/* ===== ESTILOS (Mantidos da sua versão anterior) ===== */
+const pageStyle = { position: 'absolute', top: 0, left: 0, width: '100vw', minHeight: '100vh', backgroundColor: '#f4f7fb', display: 'flex', justifyContent: 'center', alignItems: 'center', fontFamily: 'Arial, sans-serif', padding: '40px 20px', boxSizing: 'border-box', overflowX: 'hidden' };
+const contentWrapper = { display: 'flex', gap: '30px', width: '100%', maxWidth: '1100px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'flex-start' };
+const leftColumn = { flex: 1, minWidth: '320px', maxWidth: '500px', backgroundColor: 'white', padding: '40px', borderRadius: '24px', boxShadow: '0 15px 40px rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' };
+const rightColumn = { flex: 1, minWidth: '320px', maxWidth: '500px', backgroundColor: 'white', padding: '40px', borderRadius: '24px', boxShadow: '0 15px 40px rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' };
+const labelStyle = { color: '#666', fontSize: 13, fontWeight: 'bold', marginBottom: 6, display: 'block', marginLeft: 2, textAlign: 'left' };
+const inputStyle = { width: '100%', padding: '15px 18px', marginBottom: 20, borderRadius: '14px', border: '1px solid #d8e3f0', backgroundColor: 'white', color: '#333', outline: 'none', boxSizing: 'border-box', fontSize: '15px', transition: '0.2s' };
+const textareaStyle = { width: '100%', height: 200, padding: '15px 18px', borderRadius: '14px', border: '1px solid #d8e3f0', backgroundColor: 'white', color: '#333', fontFamily: 'Arial, sans-serif', fontSize: '14px', resize: 'vertical', boxSizing: 'border-box', outline: 'none', lineHeight: '1.5', transition: '0.2s' };
+const buttonStyle = { width: '100%', padding: '16px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '14px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer', marginTop: 20, boxShadow: '0 6px 18px rgba(0,123,255,0.25)', letterSpacing: '0.5px' };
+const secondaryButton = { flex: 1, padding: '12px', fontSize: '14px', borderRadius: '10px', border: 'none', backgroundColor: '#e2e8f0', color: '#666', fontWeight: 'bold', cursor: 'pointer' };
+const linkStyle = { color: '#666', fontSize: '14px', cursor: 'pointer', textDecoration: 'underline', marginTop: 20, textAlign: 'center', fontWeight: '500' };
+const suggestBox = { position: 'absolute', top: 'calc(100% - 15px)', left: 0, right: 0, backgroundColor: 'white', border: '1px solid #d8e3f0', borderRadius: '14px', boxShadow: '0 8px 25px rgba(0,0,0,0.08)', zIndex: 10, overflow: 'hidden' };
+const suggestItem = { padding: '12px 16px', cursor: 'pointer', textAlign: 'left', borderBottom: '1px solid #f4f7fb' };
+const midiListContainer = { display: 'flex', flexDirection: 'column', gap: '15px' };
+const midiCardStyle = { display: 'flex', alignItems: 'center', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '15px', boxSizing: 'border-box', transition: '0.2s' };
+const iconBoxPrimary = { width: 42, height: 42, backgroundColor: '#e6f4ea', color: '#137333', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRadius: '10px', fontSize: '22px', fontWeight: 'bold' };
+const iconBoxSecondary = { width: 42, height: 42, backgroundColor: '#e8f0fe', color: '#1a73e8', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRadius: '10px', fontSize: '18px' };
+const uploadButton = { padding: '8px 14px', backgroundColor: '#238636', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', boxShadow: '0 4px 10px rgba(35,134,54,0.15)' };
+const useMidiButton = { padding: '8px 16px', backgroundColor: '#007bff', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', boxShadow: '0 4px 10px rgba(0,123,255,0.15)' };

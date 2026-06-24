@@ -7,10 +7,16 @@ export default function Perfil() {
   const [isEditing, setIsEditing] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const navigate = useNavigate();
-  
-  const [userData, setUserData] = useState({ nome: '', email: '', foto: '' });
+
+  const [userData, setUserData] = useState({
+    nome: '',
+    email: '',
+    foto_perfil: ''
+  });
+
   const [nome, setNome] = useState('');
-  const [fotoPerfil, setFotoPerfil] = useState('');
+  const [fotoFile, setFotoFile] = useState(null);
+
   const [senhaAtual, setSenhaAtual] = useState('');
   const [senhaNova, setSenhaNova] = useState('');
   const [senhaConfirmacaoDelete, setSenhaConfirmacaoDelete] = useState('');
@@ -21,175 +27,312 @@ export default function Perfil() {
       const user = JSON.parse(salvo);
       setUserData(user);
       setNome(user.nome);
-      setFotoPerfil(user.foto);
     }
   }, []);
 
+  // =========================
+  // UPLOAD AVATAR
+  // =========================
+  const uploadAvatar = async (file) => {
+    if (!file) return null;
+
+    const fileName = `${Date.now()}-${file.name}`;
+
+    const { error } = await supabase.storage
+      .from('Fotos de perfil')
+      .upload(fileName, file);
+
+    if (error) {
+      console.error(error);
+      return null;
+    }
+
+    const { data } = supabase.storage
+      .from('Fotos de perfil')
+      .getPublicUrl(fileName);
+
+    return data.publicUrl;
+  };
+
+  // =========================
+  // UPDATE PERFIL
+  // =========================
   const handleUpdate = async () => {
     if (!senhaAtual) {
       alert("Senha atual obrigatória.");
       return;
     }
+
     setLoading(true);
-    const { data: userVerify, error: verifyError } = await supabase
+
+    const { data: userVerify } = await supabase
       .from('usuarios')
       .select('*')
       .eq('email', userData.email)
       .eq('senha', senhaAtual)
       .single();
 
-    if (verifyError || !userVerify) {
-      alert("Senha atual incorreta.");
+    if (!userVerify) {
+      alert("Senha incorreta.");
       setLoading(false);
       return;
     }
 
-    const updates = { nome, foto_perfil: fotoPerfil };
-    if (senhaNova.trim() !== "") updates.senha = senhaNova;
+    let foto_perfil = userData.foto_perfil;
 
-    const { error: updateError } = await supabase
+    // se enviou nova imagem
+    if (fotoFile) {
+      const uploadedUrl = await uploadAvatar(fotoFile);
+      if (uploadedUrl) foto_perfil = uploadedUrl;
+    }
+
+    const updates = { nome, foto_perfil };
+
+    if (senhaNova.trim() !== '') {
+      updates.senha = senhaNova;
+    }
+
+    const { error } = await supabase
       .from('usuarios')
       .update(updates)
       .eq('email', userData.email);
 
-    if (updateError) {
-      alert("Erro ao atualizar: " + updateError.message);
+    if (error) {
+      alert(error.message);
     } else {
-      alert("Perfil atualizado!");
-      const novoUsuario = { ...userData, nome, foto: fotoPerfil };
+      const novoUsuario = {
+        ...userData,
+        nome,
+        foto_perfil
+      };
+
       setUserData(novoUsuario);
       localStorage.setItem('usuarioLogado', JSON.stringify(novoUsuario));
+
+      alert("Perfil atualizado!");
       setIsEditing(false);
       setSenhaAtual('');
       setSenhaNova('');
+      setFotoFile(null);
     }
+
     setLoading(false);
   };
 
+  // =========================
+  // DELETE ACCOUNT
+  // =========================
   const handleDeleteAccount = async () => {
     if (!senhaConfirmacaoDelete) {
-      alert("Digite sua senha para confirmar a exclusão.");
+      alert("Digite sua senha.");
       return;
     }
 
-    const confirmar = window.confirm("TEM CERTEZA? Esta ação não pode ser desfeita.");
-    if (!confirmar) return;
-
     setLoading(true);
 
-    // Valida a senha antes de deletar
-    const { data: userVerify, error: verifyError } = await supabase
+    const { data: userVerify } = await supabase
       .from('usuarios')
       .select('*')
       .eq('email', userData.email)
       .eq('senha', senhaConfirmacaoDelete)
       .single();
 
-    if (verifyError || !userVerify) {
-      alert("Senha incorreta. Não foi possível deletar a conta.");
+    if (!userVerify) {
+      alert("Senha incorreta.");
       setLoading(false);
       return;
     }
 
-    // Deleta do banco de dados
-    const { error: deleteError } = await supabase
+    await supabase
       .from('usuarios')
       .delete()
       .eq('email', userData.email);
 
-    if (deleteError) {
-      alert("Erro ao deletar: " + deleteError.message);
-    } else {
-      alert("Conta excluída com sucesso.");
-      localStorage.removeItem('usuarioLogado');
-      navigate('/login');
-    }
-    setLoading(false);
+    localStorage.removeItem('usuarioLogado');
+    navigate('/login');
   };
 
+  // =========================
+  // UI
+  // =========================
   return (
-    <div style={{ textAlign: 'center', marginTop: '50px', fontFamily: 'Arial' }}>
-      <h2>{isEditing ? 'Editar Perfil' : (isDeletingAccount ? 'Excluir Conta' : 'Meu Perfil')}</h2>
+    <div style={pageStyle}>
+      <div style={cardStyle}>
+        <h1 style={{ color: '#007bff' }}>Meu Perfil</h1>
 
-      <div style={{ display: 'flex', flexDirection: 'column', width: '300px', margin: '0 auto', gap: '15px' }}>
-        
-        {/* Foto de Perfil */}
-        <div style={{ marginBottom: '10px' }}>
-          <img 
-            src={isEditing ? (fotoPerfil || 'https://via.placeholder.com/150') : (userData.foto || 'https://via.placeholder.com/150')} 
-            alt="Perfil" 
-            style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #007bff' }}
-          />
-        </div>
+        <p style={{ color: '#666' }}>
+          Gerencie sua conta
+        </p>
 
-        {isEditing && (
-          <>
-            <input type="text" placeholder="Nome completo" value={nome} onChange={(e) => setNome(e.target.value)} style={{ padding: '8px' }} />
-            <input type="text" placeholder="URL da foto" value={fotoPerfil} onChange={(e) => setFotoPerfil(e.target.value)} style={{ padding: '8px' }} />
-            <hr style={{ width: '100%' }} />
-            <input type="password" placeholder="Nova senha (opcional)" value={senhaNova} onChange={(e) => setSenhaNova(e.target.value)} style={{ padding: '8px' }} />
-            <input type="password" placeholder="Senha atual (obrigatória)" value={senhaAtual} onChange={(e) => setSenhaAtual(e.target.value)} style={{ padding: '8px', border: '1px solid red' }} />
-            <button onClick={handleUpdate} disabled={loading} style={{ padding: '10px', backgroundColor: '#28a745', color: 'white', border: 'none', cursor: 'pointer' }}>
-              {loading ? 'Salvando...' : 'Salvar Alterações'}
-            </button>
-            <button onClick={() => setIsEditing(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', textDecoration: 'underline' }}>Cancelar</button>
-          </>
-        )}
+        {/* AVATAR */}
+        <img
+          src={
+            userData.foto_perfil ||
+            'https://via.placeholder.com/150'
+          }
+          style={avatarStyle}
+        />
 
-        {isDeletingAccount && !isEditing && (
-          <>
-            <p style={{ color: 'red', fontSize: '14px' }}>Para deletar sua conta, confirme sua senha atual:</p>
-            <input 
-              type="password" 
-              placeholder="Sua senha atual" 
-              value={senhaConfirmacaoDelete}
-              onChange={(e) => setSenhaConfirmacaoDelete(e.target.value)}
-              style={{ padding: '8px', border: '1px solid red' }}
-            />
-            <button 
-              onClick={handleDeleteAccount} 
-              disabled={loading}
-              style={{ padding: '10px', backgroundColor: '#dc3545', color: 'white', border: 'none', cursor: 'pointer' }}
-            >
-              {loading ? 'Deletando...' : 'CONFIRMAR EXCLUSÃO'}
-            </button>
-            <button 
-              onClick={() => { setIsDeletingAccount(false); setSenhaConfirmacaoDelete(''); }}
-              style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', textDecoration: 'underline' }}
-            >
-              Voltar
-            </button>
-          </>
-        )}
-
+        {/* VIEW */}
         {!isEditing && !isDeletingAccount && (
           <>
-            <div style={{ textAlign: 'left', padding: '10px', backgroundColor: '#f9f9f9', borderRadius: '5px' }}>
-              <p><strong>Nome:</strong> {userData.nome}</p>
-              <p><strong>E-mail:</strong> {userData.email}</p>
+            <div style={infoBox}>
+              <p><b>Nome:</b> {userData.nome}</p>
+              <p><b>Email:</b> {userData.email}</p>
             </div>
-            <button onClick={() => setIsEditing(true)} style={{ padding: '10px', backgroundColor: '#007bff', color: 'white', border: 'none', cursor: 'pointer' }}>
+
+            <button style={buttonStyle} onClick={() => setIsEditing(true)}>
               Editar Perfil
             </button>
-            
-            <span 
-              onClick={() => setIsDeletingAccount(true)}
-              style={{ color: '#dc3545', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', marginTop: '5px' }}
-            >
+
+            <p style={danger} onClick={() => setIsDeletingAccount(true)}>
               Deletar conta
-            </span>
+            </p>
           </>
         )}
 
-        {/* OPÇÃO ADICIONADA: Link para Voltar ao Menu */}
-        <span 
-          onClick={() => navigate('/')}
-          style={{ color: '#666', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', marginTop: '10px' }}
-        >
-          Voltar ao Menu
-        </span>
+        {/* EDIT */}
+        {isEditing && (
+          <>
+            <input
+              style={inputStyle}
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              placeholder="Nome"
+            />
 
+            {/* FILE INPUT (NOVO) */}
+            <input
+              type="file"
+              accept="image/*"
+              style={inputStyle}
+              onChange={(e) => setFotoFile(e.target.files[0])}
+            />
+
+            <input
+              style={inputStyle}
+              type="password"
+              placeholder="Nova senha"
+              value={senhaNova}
+              onChange={(e) => setSenhaNova(e.target.value)}
+            />
+
+            <input
+              style={{ ...inputStyle, border: '1px solid red' }}
+              type="password"
+              placeholder="Senha atual"
+              value={senhaAtual}
+              onChange={(e) => setSenhaAtual(e.target.value)}
+            />
+
+            <button
+              style={{ ...buttonStyle, backgroundColor: '#28a745' }}
+              onClick={handleUpdate}
+            >
+              {loading ? 'Salvando...' : 'Salvar'}
+            </button>
+
+            <p style={link} onClick={() => setIsEditing(false)}>
+              Cancelar
+            </p>
+          </>
+        )}
+
+        {/* DELETE */}
+        {isDeletingAccount && (
+          <>
+            <input
+              style={{ ...inputStyle, border: '1px solid red' }}
+              type="password"
+              placeholder="Senha"
+              value={senhaConfirmacaoDelete}
+              onChange={(e) => setSenhaConfirmacaoDelete(e.target.value)}
+            />
+
+            <button
+              style={{ ...buttonStyle, backgroundColor: 'red' }}
+              onClick={handleDeleteAccount}
+            >
+              Excluir conta
+            </button>
+          </>
+        )}
+
+        <p style={link} onClick={() => navigate('/')}>
+          Voltar ao menu
+        </p>
       </div>
     </div>
   );
 }
+
+/* ===== STYLE ===== */
+
+const pageStyle = {
+  position: 'fixed',
+  inset: 0,
+  background: '#f4f7fb',
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  fontFamily: 'Arial'
+};
+
+const cardStyle = {
+  background: '#fff',
+  padding: 40,
+  borderRadius: 24,
+  width: 420,
+  textAlign: 'center',
+  boxShadow: '0 15px 40px rgba(0,0,0,0.08)'
+};
+
+const avatarStyle = {
+  width: 120,
+  height: 120,
+  borderRadius: '50%',
+  objectFit: 'cover',
+  border: '3px solid #007bff',
+  marginBottom: 15
+};
+
+const inputStyle = {
+  width: '100%',
+  padding: 12,
+  marginBottom: 10,
+  borderRadius: 10,
+  border: '1px solid #d8e3f0'
+};
+
+const buttonStyle = {
+  width: '100%',
+  padding: 14,
+  background: '#007bff',
+  color: '#fff',
+  border: 'none',
+  borderRadius: 12,
+  cursor: 'pointer'
+};
+
+const link = {
+  color: '#007bff',
+  cursor: 'pointer',
+  textDecoration: 'underline',
+  fontSize: 13
+};
+
+const danger = {
+  color: 'red',
+  cursor: 'pointer',
+  textDecoration: 'underline',
+  fontSize: 13,
+  marginTop: 10
+};
+
+const infoBox = {
+  textAlign: 'left',
+  background: '#f8fafc',
+  padding: 12,
+  borderRadius: 12,
+  marginBottom: 15
+};

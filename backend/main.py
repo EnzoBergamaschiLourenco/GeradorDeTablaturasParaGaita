@@ -1,24 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from routes import midi_routes # Importe suas rotas aqui
 
 app = FastAPI()
 
-# Permite que o React (porta 5173) acesse o Python (porta 8000)
+# --- CONFIGURAÇÃO DO CORS ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://localhost:5173"], # Permite o seu React
+    allow_credentials=True,
+    allow_methods=["*"], # Permite GET, POST, etc.
+    allow_headers=["*"], # Permite todos os headers
 )
 
-@app.post("/auth/signup")
-async def signup():
-    return {"message": "Criação de conta"}
-
-@app.post("/auth/login")
-async def login():
-    return {"token": "seu-jwt-aqui"}
-
-@app.post("/auth/recovery")
-async def recover_password():
-    return {"message": "E-mail de recuperação enviado"}
+app.include_router(midi_routes.router)

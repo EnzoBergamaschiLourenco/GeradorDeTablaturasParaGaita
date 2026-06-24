@@ -38,6 +38,13 @@ Bash
 npm run dev
 Após rodar o comando, o terminal exibirá um link (geralmente http://localhost:5173). Clique nele ou cole no seu navegador para ver o site rodando.
 
+6. Rodar a api
+Agora, inicie a api
+em \backend:
+
+Bash
+uvicorn main:app --reload
+
 📂 Estrutura de Pastas Atual
 src/main.jsx: Ponto de entrada do React.
 
@@ -46,3 +53,4 @@ src/App.jsx: Definição das rotas (/ para Menu, /login para Login).
 src/pages/: Contém os arquivos das telas (Menu, Login, Cadastro).
 
 src/supabaseClient.js: Configuração da conexão com o banco de dados.
+

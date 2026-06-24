@@ -1,184 +1,248 @@
-.counter {
+/* ==========================================================================
+   HarmonicaTabs - Design System & Variáveis Globais (Inspirado no Menu)
+   ========================================================================== */
+:root {
+  --bg-page: #f4f7fb;          /* Fundo azul claro/cinza das páginas */
+  --bg-card: #ffffff;          /* Fundo branco dos containers e cartões */
+  --primary: #007bff;          /* Azul padrão de destaque */
+  --primary-hover: #0056b3;    /* Azul mais escuro para estados de hover */
+  --text-main: #333333;        /* Cor do texto principal */
+  --text-muted: #666666;       /* Cor de subtítulos e descrições */
+  --text-light: #94a3b8;       /* Texto auxiliar/labels */
+  --border-color: #d8e3f0;     /* Bordas suaves de inputs e divisores */
+  --danger: #ff4d4d;           /* Cor para botões de sair/cancelar/alertas */
+  
+  /* Sombras e Bordas Redondeadas extraídas do Menu */
+  --shadow-card: 0 15px 40px rgba(0, 0, 0, 0.08);
+  --shadow-button: 0 6px 18px rgba(0, 123, 255, 0.25);
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.05);
+  
+  --radius-lg: 24px;           /* Bordas de cartões grandes */
+  --radius-md: 14px;           /* Bordas de inputs e botões principais */
+  --radius-sm: 10px;           /* Bordas de pequenos elementos/botões secundários */
+}
+
+/* ==========================================================================
+   Estilos de Reset e Base da Aplicação
+   ========================================================================== */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-page);
+  font-family: 'Arial', sans-serif;
+  color: var(--text-main);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Títulos Globais baseados no h1 do Menu */
+h1, h2, h3 {
+  color: var(--primary);
+  font-weight: bold;
+}
+
+h1 { font-size: 36px; margin-bottom: 12px; }
+h2 { font-size: 28px; margin-bottom: 16px; }
+h3 { font-size: 20px; margin-bottom: 14px; color: var(--text-main); }
+
+p {
+  color: var(--text-muted);
+  line-height: 1.6;
+  font-size: 15px;
+}
+
+/* Links e Cliques Globais */
+a, .link-action {
+  color: var(--primary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+a:hover, .link-action:hover {
+  color: var(--primary-hover);
+  text-decoration: underline;
+}
+
+/* ==========================================================================
+   Componentes de Formulário (Inputs, Textareas, Labels)
+   ========================================================================== */
+label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-light);
+  margin-bottom: 6px;
+  text-align: left;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea,
+select {
+  width: 100%;
+  padding: 14px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+/* ==========================================================================
+   Botões Globais
+   ========================================================================== */
+/* Botão Principal (Igual ao botão "CRIAR TABS" do seu Menu) */
+.btn-primary {
+  width: 100%;
+  padding: 16px;
+  background-color: var(--primary);
+  color: white;
+  border: none;
   font-size: 16px;
-  padding: 5px 10px;
-  border-radius: 5px;
-  color: var(--accent);
-  background: var(--accent-bg);
-  border: 2px solid transparent;
-  transition: border-color 0.3s;
-  margin-bottom: 24px;
-
-  &:hover {
-    border-color: var(--accent-border);
-  }
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
+  font-weight: bold;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-button);
+  cursor: pointer;
+  transition: transform 0.2s ease, background-color 0.2s ease;
 }
 
-.hero {
-  position: relative;
-
-  .base,
-  .framework,
-  .vite {
-    inset-inline: 0;
-    margin: 0 auto;
-  }
-
-  .base {
-    width: 170px;
-    position: relative;
-    z-index: 0;
-  }
-
-  .framework,
-  .vite {
-    position: absolute;
-  }
-
-  .framework {
-    z-index: 1;
-    top: 34px;
-    height: 28px;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
-      scale(1.4);
-  }
-
-  .vite {
-    z-index: 0;
-    top: 107px;
-    height: 26px;
-    width: auto;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
-      scale(0.8);
-  }
+.btn-primary:hover {
+  transform: translateY(-2px);
+  background-color: var(--primary-hover);
 }
 
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-primary:disabled {
+  background-color: #a5caff;
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Botão Secundário (Para ações alternativas ou cinzas) */
+.btn-secondary {
+  padding: 12px 20px;
+  background-color: #e2e8f0;
+  color: var(--text-muted);
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.btn-secondary:hover {
+  background-color: #cbd5e1;
+  color: var(--text-main);
+}
+
+/* Botão de Alerta/Perigo */
+.btn-danger {
+  padding: 10px 18px;
+  background-color: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.btn-danger:hover {
+  background-color: var(--danger);
+  color: white;
+}
+
+/* ==========================================================================
+   Layouts Utilitários (Para serem usados nas suas outras páginas)
+   ========================================================================== */
+/* Embrulho de página centralizado (Ex: Página de Login, Perfil ou Menu) */
+.page-wrapper-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+/* Caixa principal estilo "Card" (Igual à caixa branca do seu Menu) */
+.main-card {
+  width: 100%;
+  max-width: 550px;
+  background-color: var(--bg-card);
+  padding: 45px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Container de duas colunas (Perfeito para a tela de CriarTablatura) */
+.columns-layout {
+  display: flex;
+  gap: 30px;
+  width: 100%;
+  max-width: 1100px;
+  margin: 40px auto;
+  padding: 0 20px;
+  flex-wrap: wrap;
+}
+
+.column-box {
+  flex: 1;
+  min-width: 320px;
+  background-color: var(--bg-card);
+  padding: 35px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+/* Grupos de espaçamento de formulários */
+.form-group {
+  margin-bottom: 20px;
+  width: 100%;
+}
+
+/* Card menor de Informações (Como a caixa de Perfil no Canto do Menu) */
+.info-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background-color: var(--bg-card);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Manter o suporte para classes anteriores caso restem no código */
 #center {
   display: flex;
   flex-direction: column;
-  gap: 25px;
   place-content: center;
   place-items: center;
   flex-grow: 1;
-
-  @media (max-width: 1024px) {
-    padding: 32px 20px 24px;
-    gap: 18px;
-  }
-}
-
-#next-steps {
-  display: flex;
-  border-top: 1px solid var(--border);
-  text-align: left;
-
-  & > div {
-    flex: 1 1 0;
-    padding: 32px;
-    @media (max-width: 1024px) {
-      padding: 24px 20px;
-    }
-  }
-
-  .icon {
-    margin-bottom: 16px;
-    width: 22px;
-    height: 22px;
-  }
-
-  @media (max-width: 1024px) {
-    flex-direction: column;
-    text-align: center;
-  }
-}
-
-#docs {
-  border-right: 1px solid var(--border);
-
-  @media (max-width: 1024px) {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-}
-
-#next-steps ul {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  gap: 8px;
-  margin: 32px 0 0;
-
-  .logo {
-    height: 18px;
-  }
-
-  a {
-    color: var(--text-h);
-    font-size: 16px;
-    border-radius: 6px;
-    background: var(--social-bg);
-    display: flex;
-    padding: 6px 12px;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    transition: box-shadow 0.3s;
-
-    &:hover {
-      box-shadow: var(--shadow);
-    }
-    .button-icon {
-      height: 18px;
-      width: 18px;
-    }
-  }
-
-  @media (max-width: 1024px) {
-    margin-top: 20px;
-    flex-wrap: wrap;
-    justify-content: center;
-
-    li {
-      flex: 1 1 calc(50% - 8px);
-    }
-
-    a {
-      width: 100%;
-      justify-content: center;
-      box-sizing: border-box;
-    }
-  }
-}
-
-#spacer {
-  height: 88px;
-  border-top: 1px solid var(--border);
-  @media (max-width: 1024px) {
-    height: 48px;
-  }
-}
-
-.ticks {
-  position: relative;
-  width: 100%;
-
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    top: -4.5px;
-    border: 5px solid transparent;
-  }
-
-  &::before {
-    left: 0;
-    border-left-color: var(--border);
-  }
-  &::after {
-    right: 0;
-    border-right-color: var(--border);
-  }
 }
