@@ -27,3 +27,17 @@ async def exportar_midi(caminho_completo: str, parte_id: str):
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/midi/play/{caminho_completo:path}")
+def tocar_midi(caminho_completo: str, partes: Optional[str] = ""):
+    # Transforma a string "track_1,channel_0" em uma lista
+    lista_partes = partes.split(",") if partes else []
+    
+    if not lista_partes:
+        # Se não enviou partes, retorna o arquivo original
+        import os
+        caminho = os.path.join(midi_service.ARQUIVOS_PATH, caminho_completo)
+        return FileResponse(caminho, media_type="audio/midi")
+        
+    caminho_saida = midi_service.exportar_filtro_midi(caminho_completo, lista_partes)
+    return FileResponse(caminho_saida, media_type="audio/midi")

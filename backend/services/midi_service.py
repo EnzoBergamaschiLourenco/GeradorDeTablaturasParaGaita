@@ -77,3 +77,38 @@ def exportar_parte_para_midi(caminho_completo: str, parte_id: str):
     
     novo_mid.save(caminho_saida)
     return caminho_saida
+
+def exportar_filtro_midi(caminho_completo: str, partes_ids: list):
+    # caminho_completo ex: '3/1782251607177_samurai.mid'
+    caminho_origem = os.path.join(ARQUIVOS_PATH, caminho_completo)
+    pasta_base = os.path.dirname(caminho_origem)
+    
+    # Gera hash para evitar conflitos de cache
+    nome_saida = f"temp_{'_'.join(partes_ids)}_{os.path.basename(caminho_completo)}"
+    caminho_saida = os.path.join(pasta_base, nome_saida)
+
+    if os.path.exists(caminho_saida):
+        return caminho_saida
+
+    mid = mido.MidiFile(caminho_origem)
+    novo_mid = mido.MidiFile()
+
+    # Separa canais e tracks
+    canais_alvo = [int(p.split('_')[1]) for p in partes_ids if p.startswith('channel')]
+    tracks_alvo = [int(p.split('_')[1]) for p in partes_ids if p.startswith('track')]
+
+    for i, track in enumerate(mid.tracks):
+        # Verifica se esta track é uma das selecionadas ou se filtra por canal
+        if i in tracks_alvo:
+            novo_mid.tracks.append(track)
+        elif canais_alvo:
+            nova_track = mido.MidiTrack()
+            # Mantém meta (tempo, etc)
+            for msg in track:
+                if msg.is_meta or (hasattr(msg, 'channel') and msg.channel in canais_alvo):
+                    nova_track.append(msg)
+            if len(nova_track) > 0:
+                novo_mid.tracks.append(nova_track)
+                
+    novo_mid.save(caminho_saida)
+    return caminho_saida

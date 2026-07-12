@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import 'html-midi-player';
 
 export default function MontarTablatura() {
   const location = useLocation();
@@ -11,7 +12,7 @@ export default function MontarTablatura() {
   const nome = dadosRecebidos.nome || "Bad Romance (Exemplo)";
   const autor = dadosRecebidos.autor || "Lady Gaga (Exemplo)";
   const letra = dadosRecebidos.letra || "Rah, hah, ah, ah, ah.\nRoma, roma, ma.\nGaga, ooh la la,\nWant your bad romance.";
-  const midiSelecionado = dadosRecebidos.midi || null; // O MIDI está aqui pronto para ir pra API Python
+  const midiSelecionado = dadosRecebidos.midi || null; 
 
   // Estados dos Dropdowns
   const [tomGaita, setTomGaita] = useState('C');
@@ -20,7 +21,9 @@ export default function MontarTablatura() {
 
   // Estados de Dados da API
   const [partesDisponiveis, setPartesDisponiveis] = useState([]);
-  const [notasDisponiveis, setNotasDisponiveis] = useState([]);
+  
+  // Dicionário para armazenar as notas de cada parte: { [parteId]: [ {id, valor, parteOrigem}, ... ] }
+  const [notasPorParte, setNotasPorParte] = useState({});
   
   // Estado para montar a letra com as notas arrastadas
   const [linhasLetra, setLinhasLetra] = useState([]);
@@ -28,7 +31,12 @@ export default function MontarTablatura() {
   // Estado da tela de Visualização Final
   const [mostrarPreview, setMostrarPreview] = useState(false);
 
-// 1. BUSCAR AS PARTES DO MIDI AO CARREGAR
+  // Estado Referente aos cards com partes selecionadas
+  const [partesAdicionadas, setPartesAdicionadas] = useState([]);
+  const [urlMidi, setUrlMidi] = useState('');
+  const midiPlayerRef = useRef(null);
+
+  // 1. BUSCAR AS PARTES DO MIDI AO CARREGAR
   useEffect(() => {
     if (letra) {
       const linhas = letra.split('\n').map((texto, index) => ({
@@ -40,8 +48,6 @@ export default function MontarTablatura() {
     }
 
     if (midiSelecionado) {
-      // O nome do arquivo que salvamos no banco
-      const nomeArquivo = midiSelecionado.arquivo_midi;
       const caminho_completo = midiSelecionado.path; 
       
       fetch(`http://127.0.0.1:8000/midi/partes/${caminho_completo}`)
@@ -51,10 +57,8 @@ export default function MontarTablatura() {
     }
   }, [letra, midiSelecionado, musicaId]);
 
-  // 2. PROCESSAR O MIDI E TRADUZIR NOTAS
-  const processarMidi = async () => {
-    if (parteMidi === '') return alert("Selecione uma parte do MIDI!");
-    
+  // 2. PROCESSAR O MIDI E TRADUZIR NOTAS (Vão direto para o card correspondente)
+  const traduzirParteMidi = async (parteId) => {
     try {
       const response = await fetch(`http://127.0.0.1:8000/traduzir-tablatura`, {
         method: 'POST',
@@ -62,7 +66,7 @@ export default function MontarTablatura() {
         body: JSON.stringify({
           musica_id: musicaId,
           nome_arquivo: midiSelecionado.arquivo_midi,
-          parte_id: parteMidi,
+          parte_id: parteId,
           tom_gaita: tomGaita,
           tipo_gaita: tipoGaita
         })
@@ -70,33 +74,121 @@ export default function MontarTablatura() {
 
       const data = await response.json();
       
-      // Transforma a lista de comandos (ex: ["3", "4"]) em objetos com ID único
       const notasComId = data.tablatura.map((valor, i) => ({
-        id: `nota-${i}-${Date.now()}`,
-        valor: valor
+        id: `nota-${parteId}-${i}-${Date.now()}`,
+        valor: valor,
+        parteOrigem: parteId
       }));
 
-      setNotasDisponiveis(notasComId);
+      // Salva as notas associadas à chave da parte específica
+      setNotasPorParte(prev => ({
+        ...prev,
+        [parteId]: notasComId
+      }));
     } catch (err) {
       console.error("Erro ao processar:", err);
-      alert("Erro ao conectar com a API de processamento.");
+      alert("Erro ao conectar com a API de processamento/tradução.");
     }
   };
 
+  // GERENCIAMENTO DOS CARDS DE PARTES MIDI
+  const adicionarParteCard = () => {
+    if (parteMidi === '') return alert("Selecione uma parte do MIDI!");
+    
+    if (partesAdicionadas.find(p => p.id === parteMidi)) {
+      return alert("Esta parte do MIDI já foi adicionada!");
+    }
+
+    const parteEncontrada = partesDisponiveis.find(p => p.id === parteMidi);
+    if (parteEncontrada) {
+      setPartesAdicionadas([...partesAdicionadas, parteEncontrada]);
+      traduzirParteMidi(parteEncontrada.id);
+      setParteMidi(''); 
+    }
+  };
+
+  const removerParteCard = (parteId) => {
+    setPartesAdicionadas(prev => prev.filter(p => p.id !== parteId));
+    setNotasPorParte(prev => {
+      const cópia = { ...prev };
+      delete cópia[parteId];
+      return cópia;
+    });
+  };
+
+  // CONTROLES DE ÁUDIO MIDI PLAYER
+  const tocarMidiFiltro = (partesQuery) => {
+    if (!midiSelecionado) return;
+    
+    const player = midiPlayerRef.current;
+    if (player) {
+      // Para a execução anterior se houver para evitar sobreposição travada
+      player.stop();
+    }
+
+    const url = `http://127.0.0.1:8000/midi/play/${midiSelecionado.path}?partes=${partesQuery}`;
+    setUrlMidi(url);
+  };
+
+  // Dispara o início do som assim que o elemento de áudio invisível registrar a alteração da URL
+  useEffect(() => {
+    if (urlMidi && midiPlayerRef.current) {
+      const iniciarPlayer = async () => {
+        try {
+          // Aguarda um ciclo mínimo de renderização para o Web Component ler o novo atributo 'src'
+          await new Promise(resolve => setTimeout(resolve, 150));
+          if (midiPlayerRef.current) {
+            midiPlayerRef.current.start();
+          }
+        } catch (e) {
+          console.error("Falha ao tocar o arquivo gerado:", e);
+        }
+      };
+      iniciarPlayer();
+    }
+  }, [urlMidi]);
+
+  const tocarTodasAsPartes = () => {
+    if (partesAdicionadas.length === 0) return;
+    const partesQuery = partesAdicionadas.map(p => p.id).join(',');
+    tocarMidiFiltro(partesQuery);
+  };
+
   // ================= DRAG AND DROP LOGIC =================
-  const handleDragStart = (e, nota) => { e.dataTransfer.setData('notaId', nota.id); };
+  const handleDragStart = (e, nota) => { 
+    e.dataTransfer.setData('notaId', nota.id); 
+    e.dataTransfer.setData('parteOrigem', nota.parteOrigem); 
+  };
   const handleDragOver = (e) => { e.preventDefault(); };
 
-  const handleDrop = (e, linhaIndex) => {
+  const handleDrop = (e, columnLinhaIndex) => {
     e.preventDefault();
     const notaId = e.dataTransfer.getData('notaId');
-    const notaEncontrada = notasDisponiveis.find(n => n.id === notaId);
+    const parteOrigem = e.dataTransfer.setData ? e.dataTransfer.getData('parteOrigem') : null;
+    
+    // Procura a nota dentro da parte correta no dicionário de notas
+    let notaEncontrada = null;
+    if (parteOrigem && notasPorParte[parteOrigem]) {
+      notaEncontrada = notasPorParte[parteOrigem].find(n => n.id === notaId);
+    } else {
+      // Fallback abrangente caso o dataTransfer perca a referência da string de origem
+      Object.keys(notasPorParte).forEach(chave => {
+        const achou = notasPorParte[chave].find(n => n.id === notaId);
+        if (achou) notaEncontrada = achou;
+      });
+    }
     
     if (notaEncontrada) {
-      setNotasDisponiveis(prev => prev.filter(n => n.id !== notaId));
+      const origemEfetiva = notaEncontrada.parteOrigem;
+      // Remove do pool de notas disponíveis daquele card específico
+      setNotasPorParte(prev => ({
+        ...prev,
+        [origemEfetiva]: prev[origemEfetiva].filter(n => n.id !== notaId)
+      }));
+
       setLinhasLetra(prev => {
         const novasLinhas = [...prev];
-        novasLinhas[linhaIndex].notas.push(notaEncontrada);
+        novasLinhas[columnLinhaIndex].notas.push(notaEncontrada);
         return novasLinhas;
       });
     }
@@ -108,14 +200,20 @@ export default function MontarTablatura() {
       const notaRemovida = novasLinhas[linhaIndex].notas.find(n => n.id === notaId);
       novasLinhas[linhaIndex].notas = novasLinhas[linhaIndex].notas.filter(n => n.id !== notaId);
       
-      if (notaRemovida) setNotasDisponiveis(disponiveis => [...disponiveis, notaRemovida]);
+      if (notaRemovida && notaRemovida.parteOrigem) {
+        // Devolve a nota para dentro do card correto
+        setNotasPorParte(disponiveis => ({
+          ...disponiveis,
+          [notaRemovida.parteOrigem]: [...(disponiveis[notaRemovida.parteOrigem] || []), notaRemovida]
+        }));
+      }
       return novasLinhas;
     });
   };
 
   const handleAdicionarNotaManual = (e, linhaIndex) => {
     if (e.key === 'Enter' && e.target.value.trim() !== '') {
-      const novaNota = { id: `nota-manual-${Date.now()}`, valor: e.target.value.trim() };
+      const novaNota = { id: `nota-manual-${Date.now()}`, valor: e.target.value.trim(), parteOrigem: 'manual' };
       setLinhasLetra(prev => {
         const novasLinhas = [...prev];
         novasLinhas[linhaIndex].notas.push(novaNota);
@@ -164,7 +262,7 @@ export default function MontarTablatura() {
     <div style={pageStyle}>
       <div style={contentWrapper}>
         
-        {/* COLUNA ESQUERDA: CONFIGURAÇÕES E NOTAS DO MIDI */}
+        {/* COLUNA ESQUERDA: CONFIGURAÇÕES E TRILHAS DO MIDI */}
         <div style={columnBox}>
           <h3 style={sectionTitle}>Configurações da Gaita</h3>
           
@@ -189,34 +287,61 @@ export default function MontarTablatura() {
             </div>
 
             <div>
-              <label style={labelStyle}>Parte do MIDI</label>
-              <select style={inputStyle} value={parteMidi} onChange={e => setParteMidi(e.target.value)}>
-                <option value="" disabled>Selecione a trilha...</option>
-                {partesDisponiveis.map(parte => (
-                  <option key={parte.id} value={parte.id}>{parte.nome}</option>
-                ))}
-              </select>
+              <label style={labelStyle}>Selecionar Parte do MIDI</label>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <select style={inputStyle} value={parteMidi} onChange={e => setParteMidi(e.target.value)}>
+                  <option value="" disabled>Selecione a trilha...</option>
+                  {partesDisponiveis.map(parte => (
+                    <option key={parte.id} value={parte.id}>{parte.nome}</option>
+                  ))}
+                </select>
+                <button style={btnAdicionarParte} onClick={adicionarParteCard}>
+                  + Add
+                </button>
+              </div>
             </div>
 
-            <button style={btnProcessar} onClick={processarMidi}>
-              Processar MIDI
-            </button>
-          </div>
-
-          <hr style={{ border: 'none', borderTop: '1px solid #e2e8f0', margin: '20px 0' }} />
-
-          <h3 style={sectionTitle}>Notas Geradas</h3>
-          <p style={{ fontSize: '13px', color: '#666', marginBottom: '15px' }}>Arraste os cards para a letra ao lado:</p>
-          
-          <div style={notasContainer}>
-            {notasDisponiveis.length === 0 ? (
-              <span style={{ color: '#94a3b8', fontSize: '14px' }}>Nenhuma nota processada ainda.</span>
-            ) : (
-              notasDisponiveis.map(nota => (
-                <div key={nota.id} draggable onDragStart={(e) => handleDragStart(e, nota)} style={cardNota}>
-                  {nota.valor}
+            {/* SEÇÃO DINÂMICA DOS CARDS DE TRILHAS MIDI SELECIONADAS */}
+            {partesAdicionadas.length > 0 && (
+              <div style={containerCardsMidi}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#4a5568' }}>Partes Ativas:</span>
+                  <button style={btnPlayAll} onClick={tocarTodasAsPartes}>
+                    ▶ Play All
+                  </button>
                 </div>
-              ))
+                
+                {partesAdicionadas.map(parte => (
+                  <div key={parte.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                    <div style={cardParteStyle}>
+                      <span style={cardParteNome}>{parte.nome}</span>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        <button style={btnPlayCard} onClick={() => tocarMidiFiltro(parte.id)} title="Tocar esta parte">
+                          ▶
+                        </button>
+                        <button style={btnRemoverCard} onClick={() => removerParteCard(parte.id)} title="Remover parte">
+                          ✖
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* NOTAS GERADAS ESPECÍFICAS DESTA PARTE DENTRO DO SEU RESPECTIVO CARD */}
+                    <div style={notasCardInternoContainer}>
+                      {!notasPorParte[parte.id] ? (
+                        <span style={{ color: '#a0aec0', fontSize: '12px', fontStyle: 'italic' }}>Processando notas...</span>
+                      ) : notasPorParte[parte.id].length === 0 ? (
+                        <span style={{ color: '#cbd5e1', fontSize: '11px' }}>Todas as notas foram alocadas na letra.</span>
+                      ) : (
+                        notasPorParte[parte.id].map(nota => (
+                          <div key={nota.id} draggable onDragStart={(e) => handleDragStart(e, nota)} style={cardNota}>
+                            {nota.valor}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -262,6 +387,15 @@ export default function MontarTablatura() {
         </div>
 
       </div>
+
+      {/* PLAYER MIDI INVISÍVEL PARA EXECUÇÃO DOS CONTROLES WEB */}
+      {urlMidi && (
+        <midi-player
+          ref={midiPlayerRef}
+          src={urlMidi}
+          style={{ display: 'none' }}
+        ></midi-player>
+      )}
     </div>
   );
 }
@@ -274,17 +408,26 @@ const mainCard = { margin: '0 auto', backgroundColor: 'white', padding: '45px', 
 const sectionTitle = { color: '#007bff', fontSize: '18px', marginBottom: '20px', fontWeight: 'bold' };
 const labelStyle = { fontSize: '13px', color: '#666', fontWeight: 'bold', marginBottom: '6px', display: 'block' };
 
-// ESTILO ATUALIZADO DOS DROPDOWNS COM COLOR #333 E CURSOR:
 const inputStyle = { width: '100%', padding: '12px 15px', borderRadius: '10px', border: '1px solid #d8e3f0', fontSize: '15px', outline: 'none', backgroundColor: '#fff', color: '#333', cursor: 'pointer' };
 
-const btnProcessar = { width: '100%', padding: '14px', backgroundColor: '#238636', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(35,134,54,0.2)' };
 const btnPrimary = { padding: '14px 24px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,123,255,0.2)' };
 const btnSecondary = { padding: '14px 24px', backgroundColor: '#e2e8f0', color: '#666', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' };
-const notasContainer = { display: 'flex', flexWrap: 'wrap', gap: '10px', minHeight: '150px', alignContent: 'flex-start', padding: '15px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' };
-const cardNota = { padding: '8px 14px', backgroundColor: '#007bff', color: 'white', fontWeight: 'bold', borderRadius: '8px', cursor: 'grab', userSelect: 'none', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' };
+
+const cardNota = { padding: '6px 12px', backgroundColor: '#007bff', color: 'white', fontWeight: 'bold', borderRadius: '8px', cursor: 'grab', userSelect: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '13px' };
 const linhaContainer = { display: 'flex', flexDirection: 'column', gap: '5px' };
 const zonaDrop = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', minHeight: '38px', padding: '6px 10px', backgroundColor: '#fff', border: '2px dashed #d8e3f0', borderRadius: '10px', transition: 'background-color 0.2s' };
 const cardNotaAlocada = { padding: '6px 12px', backgroundColor: '#1a73e8', color: 'white', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '14px' };
 const inputNotaManual = { width: '40px', padding: '6px', borderRadius: '6px', border: '1px solid #d8e3f0', textAlign: 'center', outline: 'none', fontWeight: 'bold', color: '#333' };
 const textoLetra = { fontSize: '16px', color: '#333', paddingLeft: '5px', whiteSpace: 'pre-wrap' };
 const btnContinuar = { position: 'absolute', bottom: '25px', right: '35px', padding: '14px 28px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer', boxShadow: '0 6px 18px rgba(0,123,255,0.3)' };
+
+const btnAdicionarParte = { padding: '0 20px', backgroundColor: '#238636', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 10px rgba(35,134,54,0.15)', fontSize: '14px' };
+const containerCardsMidi = { backgroundColor: '#f8fafc', padding: '15px', borderRadius: '14px', border: '1px solid #e2e8f0', marginTop: '10px' };
+const cardParteStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', marginBottom: '2px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' };
+const cardParteNome = { fontWeight: 'bold', fontSize: '14px', color: '#334155' };
+const btnPlayAll = { padding: '6px 12px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,123,255,0.2)' };
+const btnPlayCard = { width: '28px', height: '28px', backgroundColor: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' };
+const btnRemoverCard = { width: '28px', height: '28px', backgroundColor: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' };
+
+// NOVO ESTILO DO SUB-CONTAINER DE NOTAS ACOPLADO ABAIXO DE CADA TRILHA ATIVA
+const notasCardInternoContainer = { display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '10px', backgroundColor: '#edf2f7', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '14px' };

@@ -15,6 +15,7 @@ Se você já tem a pasta no seu PC, ignore este passo. Caso contrário:
 Bash
 git clone https://github.com/seu-usuario/seu-repositorio.git
 cd seu-repositorio
+
 2. Entrar na pasta do Frontend
 Como o projeto está estruturado com a pasta frontend, entre nela:
 
@@ -43,7 +44,8 @@ Agora, inicie a api
 em \backend:
 
 Bash
-uvicorn main:app --reload
+venv/Scripts/Activate
+py -m uvicorn main:app --reload
 
 📂 Estrutura de Pastas Atual
 src/main.jsx: Ponto de entrada do React.
