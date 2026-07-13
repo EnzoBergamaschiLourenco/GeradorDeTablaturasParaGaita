@@ -109,6 +109,8 @@ function useMidiPlayer() {
 
 // ================= COMPONENTE PRINCIPAL =================
 export default function MontarTablatura() {
+  const [posicoes, setPosicoes] = useState([]);
+
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -131,6 +133,23 @@ export default function MontarTablatura() {
   const [linhasLetra, setLinhasLetra] = useState([]);
   const [mostrarPreview, setMostrarPreview] = useState(false);
   const [partesAdicionadas, setPartesAdicionadas] = useState([]);
+
+  //Buscar Notas Parte Midi
+  const handleTraduzir = async () => {
+    const response = await fetch('/api/midi/traduzir', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        musica_id: musicaId,
+        parte_id: parteMidi,
+        tom_gaita: tomGaita,
+        tipo_gaita: tipoGaita
+      })
+    });
+    const data = await response.json();
+    // Aqui você atualiza o estado para exibir o dropdown de oitavas se houver mais de uma
+    console.log("Posições encontradas:", data.posicoes);
+  };
 
   // Inicializa o Hook Customizado de Áudio
   const { 
@@ -165,7 +184,7 @@ export default function MontarTablatura() {
   // 2. PROCESSAR O MIDI E TRADUZIR NOTAS
   const traduzirParteMidi = async (parteId) => {
     try {
-      const response = await fetch(`http://127.0.0.1:8000/traduzir-tablatura`, {
+      const response = await fetch(`http://127.0.0.1:8000/midi/traduzir`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -423,6 +442,27 @@ export default function MontarTablatura() {
                               width: playingId === parte.id ? `${progress}%` : '0%' 
                           }}></div>
                         </div>
+                      </div>
+                      
+                      <div style={cardParteStyle}>
+                        <span style={cardParteNome}>{parte.nome}</span>
+                        
+                        <button onClick={handleTraduzir}>Traduzir</button>
+
+                        {/* AQUI ENTRA O SELECT */}
+                        {posicoes.length > 0 && (
+                          <select 
+                            value={posicaoSelecionada} 
+                            onChange={(e) => setPosicaoSelecionada(e.target.value)}
+                            style={{ marginLeft: '10px' }}
+                          >
+                            {posicoes.map((p, idx) => (
+                              <option key={idx} value={idx}>
+                                Oitava {p.offset / 12} (Deslocamento {p.offset})
+                              </option>
+                            ))}
+                          </select>
+                        )}
                       </div>
 
                       <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>

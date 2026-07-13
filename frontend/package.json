@@ -12,6 +12,7 @@
   "dependencies": {
     "@magenta/music": "^1.23.1",
     "@supabase/supabase-js": "^2.110.2",
+    "buffer": "^6.0.3",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-router-dom": "^7.15.0"

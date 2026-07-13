@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from typing import Optional # <-- IMPORT FALTANDO ADICIONADO AQUI
 import os
 
@@ -43,3 +44,21 @@ def tocar_midi(caminho_completo: str, partes: Optional[str] = ""):
         
     caminho_saida = midi_service.exportar_filtro_midi(caminho_completo, lista_partes)
     return FileResponse(caminho_saida, media_type="audio/midi")
+
+class TraducaoRequest(BaseModel):
+    musica_id: int
+    parte_id: str
+    tom_gaita: str
+    tipo_gaita: str
+
+@router.post("/midi/traduzir")
+async def traduzir_tablatura(req: TraducaoRequest):
+    try:
+        # Assumindo que você tem o caminho salvo ou acessível
+        # Ajuste conforme seu armazenamento
+        caminho = f"{req.musica_id}/arquivo.mid" 
+        posicoes = midi_service.processar_traducao_gaita(caminho, req.parte_id, req.tom_gaita, req.tipo_gaita)
+        return {"posicoes": posicoes}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    

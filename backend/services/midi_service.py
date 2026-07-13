@@ -134,3 +134,59 @@ def exportar_filtro_midi(caminho_completo: str, partes_ids: list):
 def exportar_parte_para_midi(caminho_completo: str, parte_id: str):
     # Reaproveita a lógica blindada acima para não duplicar código e manter os mesmos mapeamentos de índice
     return exportar_filtro_midi(caminho_completo, [parte_id])
+
+def obter_notas_da_parte(caminho_completo: str, parte_id: str):
+    caminho_local = os.path.join(ARQUIVOS_PATH, caminho_completo)
+    mid = mido.MidiFile(caminho_local)
+    
+    # Extrai apenas as notas (note_on) da parte selecionada (simplificado)
+    notas = []
+    # Nota: você precisará adaptar a lógica de busca da track correta conforme seu sistema
+    track = mid.tracks[int(parte_id.split('_')[1])]
+    for msg in track:
+        if msg.type == 'note_on' and msg.velocity > 0:
+            notas.append(msg.note)
+    
+    return list(set(notas)) # Retorna apenas notas únicas
+
+def traduzir_notas_para_gaita(notas_midi, tom, tipo):
+    # Busca mapeamento no Supabase
+    layout = supabase.table("layouts_gaita").select("id").eq("tom", tom).eq("tipo", tipo).single().execute()
+    layout_id = layout.data['id']
+    
+    mapeamento = supabase.table("mapeamento_notas").select("nota_musical, comando_gaita").eq("layout_id", layout_id).execute()
+    
+    # Converte mapeamento para um dicionário {60: "1", 62: "-1", ...}
+    # Aqui você precisaria de uma função auxiliar para converter "C4" para MIDI 60
+    return mapeamento.data
+
+def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo):
+    notas_musica = obter_notas_da_parte(caminho_completo, parte_id)
+    
+    # 1. Busca mapeamento do banco (retorna lista de dicts: {'nota_musical': 'C4', 'comando_gaita': '1'})
+    dados_banco = traduzir_notas_para_gaita(None, tom, tipo) # Ajuste a função traduzir_notas_para_gaita para receber dados ou buscar dentro dela
+    
+    # Converte 'C4' -> 60, 'C5' -> 72, etc.
+    mapa_gaita = {}
+    for item in dados_banco:
+        nota_str = item['nota_musical']
+        # Converte nota ex: "C4" para nota MIDI
+        midi_val = mido.note_to_number(nota_str)
+        mapa_gaita[midi_val] = item['comando_gaita']
+
+    posicoes_validas = []
+    # Testa deslocamentos: -12 (oitava abaixo), 0 (original), +12 (oitava acima), +24 (duas acima)
+    for offset in [-12, 0, 12, 24]:
+        mapeamento_atual = {}
+        possivel = True
+        for nota in notas_musica:
+            nota_transposta = nota + offset
+            if nota_transposta in mapa_gaita:
+                mapeamento_atual[nota] = mapa_gaita[nota_transposta]
+            else:
+                possivel = False
+                break
+        if possivel:
+            posicoes_validas.append({"offset": offset, "mapeamento": mapeamento_atual})
+            
+    return posicoes_validas
