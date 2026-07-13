@@ -2,6 +2,7 @@ import os
 import mido
 from supabase import create_client
 from dotenv import load_dotenv
+import re
 
 load_dotenv()
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
@@ -160,33 +161,72 @@ def traduzir_notas_para_gaita(notas_midi, tom, tipo):
     # Aqui você precisaria de uma função auxiliar para converter "C4" para MIDI 60
     return mapeamento.data
 
-def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo):
-    notas_musica = obter_notas_da_parte(caminho_completo, parte_id)
-    
-    # 1. Busca mapeamento do banco (retorna lista de dicts: {'nota_musical': 'C4', 'comando_gaita': '1'})
-    dados_banco = traduzir_notas_para_gaita(None, tom, tipo) # Ajuste a função traduzir_notas_para_gaita para receber dados ou buscar dentro dela
-    
-    # Converte 'C4' -> 60, 'C5' -> 72, etc.
-    mapa_gaita = {}
-    for item in dados_banco:
-        nota_str = item['nota_musical']
-        # Converte nota ex: "C4" para nota MIDI
-        midi_val = mido.note_to_number(nota_str)
-        mapa_gaita[midi_val] = item['comando_gaita']
+def nota_para_midi(nota_str):
+    # Converte string (C4, Bb4, F#5) para o número MIDI (60, 70, 78)
+    notas_base = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4, "F": 5, "F#": 6, "Gb": 6, "G": 7, "G#": 8, "Ab": 8, "A": 9, "A#": 10, "Bb": 10, "B": 11}
+    match = re.match(r"([A-Ga-g][#b]?)(-?\d+)", nota_str)
+    if not match: return -1
+    nome, oitava = match.groups()
+    nome = nome.capitalize()
+    return notas_base[nome] + (int(oitava) + 1) * 12
 
+def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo):
+    caminho_local = os.path.join(ARQUIVOS_PATH, caminho_completo)
+    mid = mido.MidiFile(caminho_local)
+    
+    is_channel = parte_id.startswith('channel')
+    idx_alvo = int(parte_id.split('_')[1])
+    
+    notas_musica_ordenadas = []
+    
+    # 1. Extrai a melodia NA ORDEM
+    if is_channel:
+        for track in mid.tracks:
+            for msg in track:
+                if msg.type == 'note_on' and msg.velocity > 0 and getattr(msg, 'channel', -1) == idx_alvo:
+                    notas_musica_ordenadas.append(msg.note)
+    else:
+        trilhas_com_notas = [t for t in mid.tracks if any(m.type == 'note_on' for m in t)]
+        track = trilhas_com_notas[idx_alvo]
+        for msg in track:
+            if msg.type == 'note_on' and msg.velocity > 0:
+                notas_musica_ordenadas.append(msg.note)
+    
+    if not notas_musica_ordenadas:
+        return []
+
+    notas_unicas = list(set(notas_musica_ordenadas))
+    
+    # 2. Busca o dicionário da Gaita no Supabase
+    layout = supabase.table("layouts_gaita").select("id").eq("tom", tom).eq("tipo", tipo).single().execute()
+    if not layout.data:
+        raise Exception(f"Layout de gaita ({tom} {tipo}) não encontrado no banco de dados.")
+        
+    layout_id = layout.data['id']
+    mapeamento = supabase.table("mapeamento_notas").select("nota_musical, comando_gaita").eq("layout_id", layout_id).execute()
+    
+    mapa_gaita = {}
+    for item in mapeamento.data:
+        midi_val = nota_para_midi(item['nota_musical'])
+        mapa_gaita[midi_val] = item['comando_gaita']
+        
     posicoes_validas = []
-    # Testa deslocamentos: -12 (oitava abaixo), 0 (original), +12 (oitava acima), +24 (duas acima)
-    for offset in [-12, 0, 12, 24]:
-        mapeamento_atual = {}
+    
+    # 3. Algoritmo de Janela Deslizante (Oitavas)
+    for offset in [-24, -12, 0, 12, 24]:
         possivel = True
-        for nota in notas_musica:
-            nota_transposta = nota + offset
-            if nota_transposta in mapa_gaita:
-                mapeamento_atual[nota] = mapa_gaita[nota_transposta]
-            else:
+        # Verifica se TODAS as notas existem na gaita para esta oitava
+        for nota in notas_unicas:
+            if (nota + offset) not in mapa_gaita:
                 possivel = False
                 break
+        
+        # Se cabe na gaita, traduz a melodia completa
         if possivel:
-            posicoes_validas.append({"offset": offset, "mapeamento": mapeamento_atual})
+            tablatura = [mapa_gaita[n + offset] for n in notas_musica_ordenadas]
+            posicoes_validas.append({
+                "offset": offset,
+                "tablatura": tablatura
+            })
             
     return posicoes_validas

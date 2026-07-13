@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import * as mm from '@magenta/music';
 
 // ================= CUSTOM HOOK DE ÁUDIO =================
-// Centraliza toda a lógica do Magenta Music, isolando a complexidade do componente visual.
 function useMidiPlayer() {
   const playerRef = useRef(null);
   const sequenceRef = useRef(null);
@@ -13,15 +12,9 @@ function useMidiPlayer() {
   const [duration, setDuration] = useState(0);
   const [playingId, setPlayingId] = useState(null);
 
-  // Inicializa o player uma única vez
   useEffect(() => {
     playerRef.current = new mm.Player();
-    
-    return () => {
-      if (playerRef.current) {
-        playerRef.current.stop();
-      }
-    };
+    return () => { if (playerRef.current) playerRef.current.stop(); };
   }, []);
 
   const stop = () => {
@@ -36,7 +29,6 @@ function useMidiPlayer() {
   const togglePlay = async (id, url) => {
     if (!playerRef.current) return;
 
-    // Se clicou na mesma track que já está em contexto
     if (playingId === id) {
       if (isPlaying) {
         playerRef.current.pause();
@@ -48,7 +40,6 @@ function useMidiPlayer() {
       return;
     }
 
-    // Se é uma nova track, reseta tudo
     stop();
     setPlayingId(id);
     setIsPlaying(true);
@@ -56,20 +47,15 @@ function useMidiPlayer() {
 
     try {
       const sequence = await mm.urlToNoteSequence(url);
-
-      // Garante que o instrumento padrão seja o Piano (0) se a track não especificar
       if (sequence.notes) {
         sequence.notes.forEach(note => {
-          if (note.instrument == null || note.instrument === undefined) {
-            note.instrument = 0;
-          }
+          if (note.instrument == null || note.instrument === undefined) note.instrument = 0;
         });
       }
 
       setDuration(sequence.totalTime);
       sequenceRef.current = sequence;
 
-      // Callback para atualizar a barra de progresso a cada nota tocada
       playerRef.current.callbackObject = {
         run(note) {
           if (sequence.totalTime > 0) {
@@ -78,16 +64,12 @@ function useMidiPlayer() {
         }
       };
 
-      // Inicia a reprodução. O await segura a execução até a música terminar naturalmente.
       await playerRef.current.start(sequence);
-      
-      // Quando a música acaba naturalmente (sem ser interrompada por stop/pause)
       if (playerRef.current.getPlayState() !== 'paused') {
         setIsPlaying(false);
         setProgress(0);
         setPlayingId(null);
       }
-
     } catch (err) {
       console.error("Erro ao carregar ou reproduzir MIDI via Magenta:", err);
       stop();
@@ -96,9 +78,7 @@ function useMidiPlayer() {
 
   const seek = (percent) => {
     if (!playerRef.current || !sequenceRef.current) return;
-    
     const timeInSeconds = (percent / 100) * duration;
-    // O Magenta utiliza seekTo() para pular para um ponto específico
     playerRef.current.seekTo(timeInSeconds);
     setProgress(percent);
   };
@@ -106,137 +86,116 @@ function useMidiPlayer() {
   return { togglePlay, stop, seek, progress, duration, isPlaying, playingId };
 }
 
-
 // ================= COMPONENTE PRINCIPAL =================
 export default function MontarTablatura() {
-  const [posicoes, setPosicoes] = useState([]);
-
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Dados recebidos do navigate (da página CriarTabs)
   const dadosRecebidos = location.state || {};
   const musicaId = dadosRecebidos.musicaId || 1;
-  const nome = dadosRecebidos.nome || "Bad Romance (Exemplo)";
-  const autor = dadosRecebidos.autor || "Lady Gaga (Exemplo)";
-  const letra = dadosRecebidos.letra || "Rah, hah, ah, ah, ah.\nRoma, roma, ma.\nGaga, ooh la la,\nWant your bad romance.";
+  const nome = dadosRecebidos.nome || "Música Exemplo";
+  const autor = dadosRecebidos.autor || "Autor Exemplo";
+  const letra = dadosRecebidos.letra || "Insira a letra aqui...";
   const midiSelecionado = dadosRecebidos.midi || null; 
 
-  // Estados dos Dropdowns
   const [tomGaita, setTomGaita] = useState('C');
   const [tipoGaita, setTipoGaita] = useState('Diatônica');
   const [parteMidi, setParteMidi] = useState('');
 
-  // Estados de Dados
   const [partesDisponiveis, setPartesDisponiveis] = useState([]);
+  const [partesAdicionadas, setPartesAdicionadas] = useState([]);
+  
   const [notasPorParte, setNotasPorParte] = useState({});
+  const [dadosOitavas, setDadosOitavas] = useState({}); // Novo: Guarda os dados de oitavas
+
   const [linhasLetra, setLinhasLetra] = useState([]);
   const [mostrarPreview, setMostrarPreview] = useState(false);
-  const [partesAdicionadas, setPartesAdicionadas] = useState([]);
 
-  //Buscar Notas Parte Midi
-  const handleTraduzir = async () => {
-    const response = await fetch('/api/midi/traduzir', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        musica_id: musicaId,
-        parte_id: parteMidi,
-        tom_gaita: tomGaita,
-        tipo_gaita: tipoGaita
-      })
-    });
-    const data = await response.json();
-    // Aqui você atualiza o estado para exibir o dropdown de oitavas se houver mais de uma
-    console.log("Posições encontradas:", data.posicoes);
-  };
+  const { togglePlay, stop, seek, progress, isPlaying, playingId } = useMidiPlayer();
 
-  // Inicializa o Hook Customizado de Áudio
-  const { 
-    togglePlay, 
-    stop, 
-    seek, 
-    progress, 
-    isPlaying, 
-    playingId 
-  } = useMidiPlayer();
-
-  // 1. BUSCAR AS PARTES DO MIDI AO CARREGAR
+  // 1. CARREGAR TRILHAS E LETRA
   useEffect(() => {
     if (letra) {
-      const linhas = letra.split('\n').map((texto, index) => ({
-        id: `linha-${index}`,
-        texto: texto,
-        notas: []
-      }));
-      setLinhasLetra(linhas);
+      setLinhasLetra(letra.split('\n').map((texto, index) => ({
+        id: `linha-${index}`, texto: texto, notas: []
+      })));
     }
-
     if (midiSelecionado) {
-      const caminho_completo = midiSelecionado.path; 
-      fetch(`http://127.0.0.1:8000/midi/partes/${caminho_completo}`)
+      fetch(`http://127.0.0.1:8000/midi/partes/${midiSelecionado.path}`)
         .then(res => res.json())
         .then(data => setPartesDisponiveis(data.partes))
         .catch(err => console.error("Erro ao buscar partes:", err));
     }
   }, [letra, midiSelecionado, musicaId]);
 
-  // 2. PROCESSAR O MIDI E TRADUZIR NOTAS
-  const traduzirParteMidi = async (parteId) => {
+  // 2. GERENCIAMENTO E TRADUÇÃO AUTOMÁTICA DA PARTE
+  const atualizarNotasDoCard = (parteId, tablaturaArray) => {
+    const notasComId = tablaturaArray.map((valor, i) => ({
+      id: `nota-${parteId}-${i}-${Date.now()}`,
+      valor: valor,
+      parteOrigem: parteId
+    }));
+    setNotasPorParte(prev => ({ ...prev, [parteId]: notasComId }));
+  };
+
+  const adicionarParteCard = async () => {
+    if (!parteMidi) return alert("Selecione uma parte do MIDI!");
+    if (partesAdicionadas.find(p => p.id === parteMidi)) return alert("Esta parte já foi adicionada!");
+
+    const parteEncontrada = partesDisponiveis.find(p => p.id === parteMidi);
+    if (!parteEncontrada) return;
+
+    // Adiciona o card vazia primeiro (status de carregamento)
+    setPartesAdicionadas([...partesAdicionadas, parteEncontrada]);
+
     try {
       const response = await fetch(`http://127.0.0.1:8000/midi/traduzir`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           musica_id: musicaId,
-          nome_arquivo: midiSelecionado.arquivo_midi,
-          parte_id: parteId,
+          caminho_completo: midiSelecionado.path,
+          parte_id: parteEncontrada.id,
           tom_gaita: tomGaita,
           tipo_gaita: tipoGaita
         })
       });
 
       const data = await response.json();
-      const notasComId = data.tablatura.map((valor, i) => ({
-        id: `nota-${parteId}-${i}-${Date.now()}`,
-        valor: valor,
-        parteOrigem: parteId
-      }));
 
-      setNotasPorParte(prev => ({
-        ...prev,
-        [parteId]: notasComId
-      }));
+      if (data.posicoes && data.posicoes.length > 0) {
+        // Armazena as oitavas encontradas no estado
+        setDadosOitavas(prev => ({
+          ...prev,
+          [parteEncontrada.id]: { posicoes: data.posicoes, selecionada: 0 }
+        }));
+        // Popula as notas com a opção padrão (posição 0)
+        atualizarNotasDoCard(parteEncontrada.id, data.posicoes[0].tablatura);
+      } else {
+        alert(`A gaita selecionada não consegue tocar esta melodia. Faltam notas mecânicas para a trilha.`);
+        removerParteCard(parteEncontrada.id); // Remove se for impossível tocar
+      }
     } catch (err) {
-      console.error("Erro ao processar:", err);
-      alert("Erro ao conectar com a API de processamento/tradução.");
+      console.error("Erro na tradução:", err);
+      alert("Falha de conexão com o tradutor da API.");
+      removerParteCard(parteEncontrada.id);
     }
+    setParteMidi(''); 
   };
 
-  // GERENCIAMENTO DOS CARDS DE PARTES MIDI
-  const adicionarParteCard = () => {
-    if (parteMidi === '') return alert("Selecione uma parte do MIDI!");
-    if (partesAdicionadas.find(p => p.id === parteMidi)) return alert("Esta parte já foi adicionada!");
-
-    const parteEncontrada = partesDisponiveis.find(p => p.id === parteMidi);
-    if (parteEncontrada) {
-      setPartesAdicionadas([...partesAdicionadas, parteEncontrada]);
-      traduzirParteMidi(parteEncontrada.id);
-      setParteMidi(''); 
-    }
+  const handleMudancaOitava = (parteId, novaOitavaIndex) => {
+    setDadosOitavas(prev => ({
+      ...prev,
+      [parteId]: { ...prev[parteId], selecionada: novaOitavaIndex }
+    }));
+    atualizarNotasDoCard(parteId, dadosOitavas[parteId].posicoes[novaOitavaIndex].tablatura);
   };
 
   const removerParteCard = (parteId) => {
-    if (playingId === parteId || playingId === 'ALL') {
-      stop(); // Usa a função limpa do hook
-    }
-
+    if (playingId === parteId || playingId === 'ALL') stop();
     setPartesAdicionadas(prev => prev.filter(p => p.id !== parteId));
-    setNotasPorParte(prev => {
-      const cópia = { ...prev };
-      delete cópia[parteId];
-      return cópia;
-    });
+    setNotasPorParte(prev => { const c = { ...prev }; delete c[parteId]; return c; });
+    setDadosOitavas(prev => { const c = { ...prev }; delete c[parteId]; return c; });
   };
 
   // ================= AÇÕES DA INTERFACE DE ÁUDIO =================
@@ -254,13 +213,7 @@ export default function MontarTablatura() {
     seek(percent);
   };
 
-  const tocarTodasAsPartes = () => {
-    if (partesAdicionadas.length === 0) return;
-    const partesQuery = partesAdicionadas.map(p => p.id).join(',');
-    handlePlayClick('ALL', partesQuery);
-  };
-
-  // ================= DRAG AND DROP LOGIC =================
+  // ================= DRAG AND DROP =================
   const handleDragStart = (e, nota) => { 
     e.dataTransfer.setData('notaId', nota.id); 
     e.dataTransfer.setData('parteOrigem', nota.parteOrigem); 
@@ -270,15 +223,12 @@ export default function MontarTablatura() {
   const handleDrop = (e, columnLinhaIndex) => {
     e.preventDefault();
     const notaId = e.dataTransfer.getData('notaId');
-    const parteOrigem = e.dataTransfer.getData('parteOrigem'); // Correção do getData aqui
+    const parteOrigem = e.dataTransfer.getData('parteOrigem');
     
     let notaEncontrada = null;
-    
-    // Procura na parte de origem informada
     if (parteOrigem && notasPorParte[parteOrigem]) {
       notaEncontrada = notasPorParte[parteOrigem].find(n => n.id === notaId);
     } else {
-      // Fallback: Varre todas as partes caso o metadado se perca no drag
       Object.keys(notasPorParte).forEach(chave => {
         const achou = notasPorParte[chave].find(n => n.id === notaId);
         if (achou) notaEncontrada = achou;
@@ -287,15 +237,11 @@ export default function MontarTablatura() {
     
     if (notaEncontrada) {
       const origemEfetiva = notaEncontrada.parteOrigem;
-      
-      // Só tenta filtrar se a lista daquela parte de fato existir para evitar o crash
       if (origemEfetiva && notasPorParte[origemEfetiva]) {
         setNotasPorParte(prev => ({
-          ...prev,
-          [origemEfetiva]: prev[origemEfetiva].filter(n => n.id !== notaId)
+          ...prev, [origemEfetiva]: prev[origemEfetiva].filter(n => n.id !== notaId)
         }));
       }
-
       setLinhasLetra(prev => {
         const novasLinhas = [...prev];
         novasLinhas[columnLinhaIndex].notas.push(notaEncontrada);
@@ -310,7 +256,7 @@ export default function MontarTablatura() {
       const notaRemovida = novasLinhas[linhaIndex].notas.find(n => n.id === notaId);
       novasLinhas[linhaIndex].notas = novasLinhas[linhaIndex].notas.filter(n => n.id !== notaId);
       
-      if (notaRemovida && notaRemovida.parteOrigem) {
+      if (notaRemovida && notaRemovida.parteOrigem && notaRemovida.parteOrigem !== 'manual') {
         setNotasPorParte(disponiveis => ({
           ...disponiveis,
           [notaRemovida.parteOrigem]: [...(disponiveis[notaRemovida.parteOrigem] || []), notaRemovida]
@@ -332,7 +278,7 @@ export default function MontarTablatura() {
     }
   };
 
-  // ================= TELA DE PREVIEW =================
+  // ================= RENDERIZAÇÃO =================
   if (mostrarPreview) {
     return (
       <div style={pageStyle}>
@@ -354,19 +300,14 @@ export default function MontarTablatura() {
           </div>
 
           <div style={{ display: 'flex', gap: '15px', marginTop: '30px', justifyContent: 'center' }}>
-            <button style={btnSecondary} onClick={() => setMostrarPreview(false)}>
-              Voltar para Edição
-            </button>
-            <button style={btnPrimary} onClick={() => alert("Tablatura pronta para salvar!")}>
-              Salvar Tablatura Definitiva
-            </button>
+            <button style={btnSecondary} onClick={() => setMostrarPreview(false)}>Voltar para Edição</button>
+            <button style={btnPrimary} onClick={() => alert("Tablatura salva!")}>Salvar Tablatura</button>
           </div>
         </div>
       </div>
     );
   }
 
-  // ================= TELA DE MONTAGEM =================
   return (
     <div style={pageStyle}>
       <div style={contentWrapper}>
@@ -379,45 +320,33 @@ export default function MontarTablatura() {
             <div>
               <label style={labelStyle}>Tom da Gaita</label>
               <select style={inputStyle} value={tomGaita} onChange={e => setTomGaita(e.target.value)}>
-                {['C', 'G', 'A', 'D', 'E', 'F', 'Bb'].map(tom => (
-                  <option key={tom} value={tom}>{tom}</option>
-                ))}
+                {['C', 'G', 'A', 'D', 'E', 'F', 'Bb'].map(tom => <option key={tom} value={tom}>{tom}</option>)}
               </select>
             </div>
-
             <div>
               <label style={labelStyle}>Tipo de Gaita</label>
               <select style={inputStyle} value={tipoGaita} onChange={e => setTipoGaita(e.target.value)}>
                 <option value="Diatônica">Diatônica</option>
                 <option value="Cromática">Cromática</option>
-                <option value="Tremolo">Tremolo</option>
-                <option value="Oitavada">Oitavada</option>
               </select>
             </div>
-
             <div>
               <label style={labelStyle}>Selecionar Parte do MIDI</label>
               <div style={{ display: 'flex', gap: '10px' }}>
                 <select style={inputStyle} value={parteMidi} onChange={e => setParteMidi(e.target.value)}>
                   <option value="" disabled>Selecione a trilha...</option>
-                  {partesDisponiveis.map(parte => (
-                    <option key={parte.id} value={parte.id}>{parte.nome}</option>
-                  ))}
+                  {partesDisponiveis.map(parte => <option key={parte.id} value={parte.id}>{parte.nome}</option>)}
                 </select>
-                <button style={btnAdicionarParte} onClick={adicionarParteCard}>
-                  + Add
-                </button>
+                <button style={btnAdicionarParte} onClick={adicionarParteCard}>+ Add</button>
               </div>
             </div>
 
             {partesAdicionadas.length > 0 && (
               <div style={containerCardsMidi}>
-                
-                {/* CABEÇALHO DO PLAY ALL COM BARRA DE PROGRESSO */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                   <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#4a5568' }}>Partes Ativas:</span>
                   <div style={{ display: 'flex', flexDirection: 'column', minWidth: '100px' }}>
-                    <button style={btnPlayAll} onClick={tocarTodasAsPartes}>
+                    <button style={btnPlayAll} onClick={() => handlePlayClick('ALL', partesAdicionadas.map(p => p.id).join(','))}>
                       {playingId === 'ALL' && isPlaying ? '⏸ Pause All' : '▶ Play All'}
                     </button>
                     {playingId === 'ALL' && (
@@ -428,73 +357,61 @@ export default function MontarTablatura() {
                   </div>
                 </div>
                 
-                {/* CARDS INDIVIDUAIS COM BARRAS DE PROGRESSO */}
-                {partesAdicionadas.map(parte => (
-                  <div key={parte.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-                    
-                    <div style={cardParteStyle}>
-                      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, marginRight: '15px' }}>
-                        <span style={cardParteNome}>{parte.nome}</span>
-                        {/* Barra de Progresso Clicável do Card */}
-                        <div style={barraFundo} onClick={(e) => handleSeekClick(e, parte.id)} title="Clique para avançar/retroceder">
-                          <div style={{ 
-                              ...barraProgresso, 
-                              width: playingId === parte.id ? `${progress}%` : '0%' 
-                          }}></div>
+                {/* CARDS INDIVIDUAIS */}
+                {partesAdicionadas.map(parte => {
+                  const oitavaInfo = dadosOitavas[parte.id];
+                  return (
+                    <div key={parte.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                      <div style={cardParteStyle}>
+                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, marginRight: '15px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={cardParteNome}>{parte.nome}</span>
+                            
+                            {/* DROPDOWN DINÂMICO DE OITAVA */}
+                            {oitavaInfo && oitavaInfo.posicoes.length > 1 && (
+                              <select 
+                                value={oitavaInfo.selecionada} 
+                                onChange={(e) => handleMudancaOitava(parte.id, parseInt(e.target.value))}
+                                style={selectOitavaStyle}
+                              >
+                                {oitavaInfo.posicoes.map((p, idx) => (
+                                  <option key={idx} value={idx}>
+                                    {p.offset === 0 ? 'Oitava Original' : (p.offset > 0 ? `+${p.offset/12} Oitava` : `${p.offset/12} Oitava`)}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
+
+                          <div style={barraFundo} onClick={(e) => handleSeekClick(e, parte.id)}>
+                            <div style={{ ...barraProgresso, width: playingId === parte.id ? `${progress}%` : '0%' }}></div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          <button style={btnPlayCard} onClick={() => handlePlayClick(parte.id, parte.id)}>
+                            {playingId === parte.id && isPlaying ? '⏸' : '▶'}
+                          </button>
+                          <button style={btnRemoverCard} onClick={() => removerParteCard(parte.id)}>✖</button>
                         </div>
                       </div>
-                      
-                      <div style={cardParteStyle}>
-                        <span style={cardParteNome}>{parte.nome}</span>
-                        
-                        <button onClick={handleTraduzir}>Traduzir</button>
 
-                        {/* AQUI ENTRA O SELECT */}
-                        {posicoes.length > 0 && (
-                          <select 
-                            value={posicaoSelecionada} 
-                            onChange={(e) => setPosicaoSelecionada(e.target.value)}
-                            style={{ marginLeft: '10px' }}
-                          >
-                            {posicoes.map((p, idx) => (
-                              <option key={idx} value={idx}>
-                                Oitava {p.offset / 12} (Deslocamento {p.offset})
-                              </option>
-                            ))}
-                          </select>
+                      <div style={notasCardInternoContainer}>
+                        {!notasPorParte[parte.id] ? (
+                          <span style={{ color: '#a0aec0', fontSize: '12px', fontStyle: 'italic' }}>Traduzindo notas para gaita...</span>
+                        ) : notasPorParte[parte.id].length === 0 ? (
+                          <span style={{ color: '#cbd5e1', fontSize: '11px' }}>Todas as notas foram alocadas.</span>
+                        ) : (
+                          notasPorParte[parte.id].map(nota => (
+                            <div key={nota.id} draggable onDragStart={(e) => handleDragStart(e, nota)} style={cardNota}>
+                              {nota.valor}
+                            </div>
+                          ))
                         )}
                       </div>
-
-                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                        <button 
-                          style={btnPlayCard} 
-                          onClick={() => handlePlayClick(parte.id, parte.id)} 
-                          title={playingId === parte.id && isPlaying ? "Pausar" : "Tocar"}
-                        >
-                          {playingId === parte.id && isPlaying ? '⏸' : '▶'}
-                        </button>
-                        <button style={btnRemoverCard} onClick={() => removerParteCard(parte.id)} title="Remover parte">
-                          ✖
-                        </button>
-                      </div>
                     </div>
-
-                    <div style={notasCardInternoContainer}>
-                      {!notasPorParte[parte.id] ? (
-                        <span style={{ color: '#a0aec0', fontSize: '12px', fontStyle: 'italic' }}>Processando notas...</span>
-                      ) : notasPorParte[parte.id].length === 0 ? (
-                        <span style={{ color: '#cbd5e1', fontSize: '11px' }}>Todas as notas foram alocadas.</span>
-                      ) : (
-                        notasPorParte[parte.id].map(nota => (
-                          <div key={nota.id} draggable onDragStart={(e) => handleDragStart(e, nota)} style={cardNota}>
-                            {nota.valor}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                ))}
-
+                  );
+                })}
               </div>
             )}
           </div>
@@ -505,40 +422,26 @@ export default function MontarTablatura() {
           <div style={{ marginBottom: '20px', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px' }}>
             <h2 style={{ color: '#333', margin: 0, fontSize: '24px' }}>{nome}</h2>
             <span style={{ color: '#666' }}>{autor}</span>
-            {midiSelecionado && <span style={{display: 'block', fontSize: '12px', color: '#007bff', marginTop: '5px'}}>MIDI: {midiSelecionado.arquivo_midi}</span>}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', paddingBottom: '80px' }}>
             {linhasLetra.map((linha, index) => (
               <div key={linha.id} style={linhaContainer}>
-                
                 <div style={zonaDrop} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, index)}>
                   {linha.notas.length === 0 && <span style={{ color: '#cbd5e1', fontSize: '12px' }}>Solte notas aqui...</span>}
-                  
                   {linha.notas.map(nota => (
                     <div key={nota.id} style={cardNotaAlocada} onClick={() => removerNotaDaLinha(index, nota.id)} title="Clique para remover">
                       {nota.valor}
                     </div>
                   ))}
-
-                  <input 
-                    type="text" placeholder="+" style={inputNotaManual}
-                    onKeyDown={(e) => handleAdicionarNotaManual(e, index)}
-                  />
+                  <input type="text" placeholder="+" style={inputNotaManual} onKeyDown={(e) => handleAdicionarNotaManual(e, index)} />
                 </div>
-
-                <div style={textoLetra}>
-                  {linha.texto || <span style={{ color: '#cbd5e1', fontStyle: 'italic' }}>[Linha vazia]</span>}
-                </div>
+                <div style={textoLetra}>{linha.texto || <span style={{ color: '#cbd5e1', fontStyle: 'italic' }}>[Linha vazia]</span>}</div>
               </div>
             ))}
           </div>
-
-          <button style={btnContinuar} onClick={() => setMostrarPreview(true)}>
-            Continuar ➔
-          </button>
+          <button style={btnContinuar} onClick={() => setMostrarPreview(true)}>Continuar ➔</button>
         </div>
-
       </div>
     </div>
   );
@@ -552,6 +455,8 @@ const mainCard = { margin: '0 auto', backgroundColor: 'white', padding: '45px', 
 const sectionTitle = { color: '#007bff', fontSize: '18px', marginBottom: '20px', fontWeight: 'bold' };
 const labelStyle = { fontSize: '13px', color: '#666', fontWeight: 'bold', marginBottom: '6px', display: 'block' };
 const inputStyle = { width: '100%', padding: '12px 15px', borderRadius: '10px', border: '1px solid #d8e3f0', fontSize: '15px', outline: 'none', backgroundColor: '#fff', color: '#333', cursor: 'pointer' };
+
+const selectOitavaStyle = { fontSize: '11px', padding: '4px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#f8fafc', outline: 'none', cursor: 'pointer', color: '#475569', fontWeight: 'bold' };
 
 const btnPrimary = { padding: '14px 24px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,123,255,0.2)' };
 const btnSecondary = { padding: '14px 24px', backgroundColor: '#e2e8f0', color: '#666', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' };
@@ -574,6 +479,5 @@ const btnRemoverCard = { width: '28px', height: '28px', backgroundColor: '#fee2e
 
 const notasCardInternoContainer = { display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '10px', backgroundColor: '#edf2f7', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '14px' };
 
-// ESTILOS DA BARRA DE PROGRESSO
 const barraFundo = { width: '100%', height: '8px', backgroundColor: '#e2e8f0', borderRadius: '4px', marginTop: '8px', cursor: 'pointer', overflow: 'hidden', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.1)' };
 const barraProgresso = { height: '100%', backgroundColor: '#007bff', transition: 'width 0.1s linear', borderRadius: '4px' };
