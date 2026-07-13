@@ -251,12 +251,15 @@ export default function MontarTablatura() {
   const handleDrop = (e, columnLinhaIndex) => {
     e.preventDefault();
     const notaId = e.dataTransfer.getData('notaId');
-    const parteOrigem = e.dataTransfer.setData ? e.dataTransfer.getData('parteOrigem') : null;
+    const parteOrigem = e.dataTransfer.getData('parteOrigem'); // Correção do getData aqui
     
     let notaEncontrada = null;
+    
+    // Procura na parte de origem informada
     if (parteOrigem && notasPorParte[parteOrigem]) {
       notaEncontrada = notasPorParte[parteOrigem].find(n => n.id === notaId);
     } else {
+      // Fallback: Varre todas as partes caso o metadado se perca no drag
       Object.keys(notasPorParte).forEach(chave => {
         const achou = notasPorParte[chave].find(n => n.id === notaId);
         if (achou) notaEncontrada = achou;
@@ -265,10 +268,14 @@ export default function MontarTablatura() {
     
     if (notaEncontrada) {
       const origemEfetiva = notaEncontrada.parteOrigem;
-      setNotasPorParte(prev => ({
-        ...prev,
-        [origemEfetiva]: prev[origemEfetiva].filter(n => n.id !== notaId)
-      }));
+      
+      // Só tenta filtrar se a lista daquela parte de fato existir para evitar o crash
+      if (origemEfetiva && notasPorParte[origemEfetiva]) {
+        setNotasPorParte(prev => ({
+          ...prev,
+          [origemEfetiva]: prev[origemEfetiva].filter(n => n.id !== notaId)
+        }));
+      }
 
       setLinhasLetra(prev => {
         const novasLinhas = [...prev];
