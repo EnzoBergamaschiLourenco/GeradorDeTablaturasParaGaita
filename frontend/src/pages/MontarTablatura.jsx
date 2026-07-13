@@ -2,6 +2,14 @@ import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import * as mm from '@magenta/music';
 
+// Função auxiliar para traduzir o número MIDI em nota musical no Modal
+const midiToNoteName = (midi) => {
+  const notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+  const octave = Math.floor(midi / 12) - 1;
+  const note = notes[midi % 12];
+  return `${note}${octave}`;
+};
+
 // ================= CUSTOM HOOK DE ÁUDIO =================
 function useMidiPlayer() {
   const playerRef = useRef(null);
@@ -106,14 +114,20 @@ export default function MontarTablatura() {
   const [partesAdicionadas, setPartesAdicionadas] = useState([]);
   
   const [notasPorParte, setNotasPorParte] = useState({});
-  const [dadosOitavas, setDadosOitavas] = useState({}); // Novo: Guarda os dados de oitavas
+  const [dadosOitavas, setDadosOitavas] = useState({});
+
+  // --- Estados do Modal de Ajuste ---
+  const [modalAjusteAberto, setModalAjusteAberto] = useState(false);
+  const [notasPendentes, setNotasPendentes] = useState([]);
+  const [comandosDaGaita, setComandosDaGaita] = useState([]);
+  const [mapeamentoUsuario, setMapeamentoUsuario] = useState({});
+  const [parteEmAjuste, setParteEmAjuste] = useState(null);
 
   const [linhasLetra, setLinhasLetra] = useState([]);
   const [mostrarPreview, setMostrarPreview] = useState(false);
 
   const { togglePlay, stop, seek, progress, isPlaying, playingId } = useMidiPlayer();
 
-  // 1. CARREGAR TRILHAS E LETRA
   useEffect(() => {
     if (letra) {
       setLinhasLetra(letra.split('\n').map((texto, index) => ({
@@ -128,7 +142,6 @@ export default function MontarTablatura() {
     }
   }, [letra, midiSelecionado, musicaId]);
 
-  // 2. GERENCIAMENTO E TRADUÇÃO AUTOMÁTICA DA PARTE
   const atualizarNotasDoCard = (parteId, tablaturaArray) => {
     const notasComId = tablaturaArray.map((valor, i) => ({
       id: `nota-${parteId}-${i}-${Date.now()}`,
@@ -138,16 +151,7 @@ export default function MontarTablatura() {
     setNotasPorParte(prev => ({ ...prev, [parteId]: notasComId }));
   };
 
-  const adicionarParteCard = async () => {
-    if (!parteMidi) return alert("Selecione uma parte do MIDI!");
-    if (partesAdicionadas.find(p => p.id === parteMidi)) return alert("Esta parte já foi adicionada!");
-
-    const parteEncontrada = partesDisponiveis.find(p => p.id === parteMidi);
-    if (!parteEncontrada) return;
-
-    // Adiciona o card vazia primeiro (status de carregamento)
-    setPartesAdicionadas([...partesAdicionadas, parteEncontrada]);
-
+  const tentarTraduzirParte = async (parteEncontrada, overrides = null) => {
     try {
       const response = await fetch(`http://127.0.0.1:8000/midi/traduzir`, {
         method: 'POST',
@@ -157,36 +161,69 @@ export default function MontarTablatura() {
           caminho_completo: midiSelecionado.path,
           parte_id: parteEncontrada.id,
           tom_gaita: tomGaita,
-          tipo_gaita: tipoGaita
+          tipo_gaita: tipoGaita,
+          overrides: overrides
         })
       });
 
-      const data = await response.json();
+      const resData = await response.json();
+      const data = resData.posicoes; // O backend envelopa a resposta aqui
 
-      if (data.posicoes && data.posicoes.length > 0) {
-        // Armazena as oitavas encontradas no estado
+      if (data && data.status === "requer_ajuste") {
+        setNotasPendentes(data.detalhes);
+        setComandosDaGaita(data.comandos_disponiveis);
+        setParteEmAjuste(parteEncontrada);
+        
+        const mapInicial = {};
+        data.detalhes.forEach(item => { mapInicial[item.nota_midi_original] = item.sugestao_comando; });
+        setMapeamentoUsuario(mapInicial);
+        setModalAjusteAberto(true);
+      } 
+      else if (Array.isArray(data) && data.length > 0) {
+        setModalAjusteAberto(false);
         setDadosOitavas(prev => ({
           ...prev,
-          [parteEncontrada.id]: { posicoes: data.posicoes, selecionada: 0 }
+          [parteEncontrada.id]: { posicoes: data, selecionada: 0 }
         }));
-        // Popula as notas com a opção padrão (posição 0)
-        atualizarNotasDoCard(parteEncontrada.id, data.posicoes[0].tablatura);
-      } else {
-        alert(`A gaita selecionada não consegue tocar esta melodia. Faltam notas mecânicas para a trilha.`);
-        removerParteCard(parteEncontrada.id); // Remove se for impossível tocar
+        atualizarNotasDoCard(parteEncontrada.id, data[0].tablatura);
+      } 
+      else {
+        alert(`Erro desconhecido ou falha na conversão.`);
+        removerParteCard(parteEncontrada.id);
       }
     } catch (err) {
       console.error("Erro na tradução:", err);
-      alert("Falha de conexão com o tradutor da API.");
+      alert("Falha de conexão com a API.");
       removerParteCard(parteEncontrada.id);
     }
+  };
+
+  const adicionarParteCard = async () => {
+    if (!parteMidi) return alert("Selecione uma parte do MIDI!");
+    if (partesAdicionadas.find(p => p.id === parteMidi)) return alert("Esta parte já foi adicionada!");
+
+    const parteEncontrada = partesDisponiveis.find(p => p.id === parteMidi);
+    if (!parteEncontrada) return;
+
+    setPartesAdicionadas([...partesAdicionadas, parteEncontrada]);
     setParteMidi(''); 
+    
+    await tentarTraduzirParte(parteEncontrada);
+  };
+
+  const confirmarAjustes = () => {
+    tentarTraduzirParte(parteEmAjuste, mapeamentoUsuario);
+  };
+
+  const cancelarAjustes = () => {
+    setModalAjusteAberto(false);
+    removerParteCard(parteEmAjuste.id);
+    setParteEmAjuste(null);
   };
 
   const handleMudancaOitava = (parteId, novaOitavaIndex) => {
     setDadosOitavas(prev => ({
-      ...prev,
-      [parteId]: { ...prev[parteId], selecionada: novaOitavaIndex }
+      ...prev, [parteId]: { ...prev[parteId], selecionada: novaOitavaIndex }
     }));
     atualizarNotasDoCard(parteId, dadosOitavas[parteId].posicoes[novaOitavaIndex].tablatura);
   };
@@ -198,7 +235,6 @@ export default function MontarTablatura() {
     setDadosOitavas(prev => { const c = { ...prev }; delete c[parteId]; return c; });
   };
 
-  // ================= AÇÕES DA INTERFACE DE ÁUDIO =================
   const handlePlayClick = (idOrigem, partesQuery) => {
     if (!midiSelecionado) return;
     const url = `http://127.0.0.1:8000/midi/play/${midiSelecionado.path}?partes=${partesQuery}&_t=${Date.now()}`;
@@ -398,7 +434,7 @@ export default function MontarTablatura() {
 
                       <div style={notasCardInternoContainer}>
                         {!notasPorParte[parte.id] ? (
-                          <span style={{ color: '#a0aec0', fontSize: '12px', fontStyle: 'italic' }}>Traduzindo notas para gaita...</span>
+                          <span style={{ color: '#a0aec0', fontSize: '12px', fontStyle: 'italic' }}>Processando notas...</span>
                         ) : notasPorParte[parte.id].length === 0 ? (
                           <span style={{ color: '#cbd5e1', fontSize: '11px' }}>Todas as notas foram alocadas.</span>
                         ) : (
@@ -443,6 +479,62 @@ export default function MontarTablatura() {
           <button style={btnContinuar} onClick={() => setMostrarPreview(true)}>Continuar ➔</button>
         </div>
       </div>
+
+      {/* --- MODAL DE AJUSTE DE NOTAS --- */}
+      {modalAjusteAberto && (
+        <div style={modalOverlay}>
+            <div style={modalContent}>
+                <h3 style={{ marginTop: 0, color: '#1e293b' }}>Ajuste de Notas</h3>
+                <p style={{ color: '#475569', fontSize: '14px', lineHeight: '1.5' }}>
+                    A parte <strong>{parteEmAjuste?.nome}</strong> possui notas que não existem fisicamente na {tipoGaita} em {tomGaita}.
+                    Escolha as adaptações abaixo para contornar isso:
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', margin: '20px 0', maxHeight: '400px', overflowY: 'auto' }}>
+                    {notasPendentes.map((nota, index) => (
+                        <div key={index} style={{
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0'
+                        }}>
+                            <div>
+                                <span style={{ fontWeight: 'bold', display: 'block', fontSize: '15px', color: '#0f172a' }}>
+                                    Nota Original: {midiToNoteName(nota.nota_midi_original)}
+                                </span>
+                                <span style={{ fontSize: '12px', color: '#64748b' }}>
+                                    Comando sugerido: <strong>{nota.sugestao_comando}</strong>
+                                </span>
+                            </div>
+                            
+                            <select 
+                                value={mapeamentoUsuario[nota.nota_midi_original]}
+                                onChange={(e) => setMapeamentoUsuario({
+                                    ...mapeamentoUsuario, 
+                                    [nota.nota_midi_original]: e.target.value
+                                })}
+                                style={{
+                                    padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1',
+                                    outline: 'none', cursor: 'pointer', fontWeight: 'bold', color: '#334155'
+                                }}
+                            >
+                                {comandosDaGaita.map(cmd => (
+                                    <option key={cmd} value={cmd}>{cmd}</option>
+                                ))}
+                            </select>
+                        </div>
+                    ))}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                    <button onClick={cancelarAjustes} style={btnCancelarModal}>
+                        Cancelar e Remover
+                    </button>
+                    <button onClick={confirmarAjustes} style={btnConfirmarModal}>
+                        Confirmar Adaptações
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -478,6 +570,11 @@ const btnPlayCard = { width: '28px', height: '28px', backgroundColor: '#e0f2fe',
 const btnRemoverCard = { width: '28px', height: '28px', backgroundColor: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' };
 
 const notasCardInternoContainer = { display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '10px', backgroundColor: '#edf2f7', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '14px' };
-
 const barraFundo = { width: '100%', height: '8px', backgroundColor: '#e2e8f0', borderRadius: '4px', marginTop: '8px', cursor: 'pointer', overflow: 'hidden', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.1)' };
 const barraProgresso = { height: '100%', backgroundColor: '#007bff', transition: 'width 0.1s linear', borderRadius: '4px' };
+
+// Estilos do Modal
+const modalOverlay = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 };
+const modalContent = { backgroundColor: 'white', padding: '30px', borderRadius: '16px', width: '90%', maxWidth: '550px', boxShadow: '0 10px 25px rgba(0,0,0,0.2)' };
+const btnCancelarModal = { padding: '10px 18px', backgroundColor: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' };
+const btnConfirmarModal = { padding: '10px 18px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 4px 10px rgba(0,123,255,0.2)' };

@@ -9,6 +9,29 @@ supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
 ARQUIVOS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../midiarchives'))
 
+def _track_para_tempo_absoluto(track):
+    eventos = []
+    tempo = 0
+
+    for msg in track:
+        tempo += msg.time
+        eventos.append((tempo, msg))
+
+    return eventos
+
+
+def _tempo_absoluto_para_track(eventos):
+    nova = mido.MidiTrack()
+
+    ultimo_tempo = 0
+
+    for tempo, msg in sorted(eventos, key=lambda x: x[0]):
+        delta = tempo - ultimo_tempo
+        nova.append(msg.copy(time=delta))
+        ultimo_tempo = tempo
+
+    return nova
+
 def baixar_e_extrair_partes(caminho_completo: str):
     caminho_local = os.path.join(ARQUIVOS_PATH, caminho_completo)
     os.makedirs(os.path.dirname(caminho_local), exist_ok=True)
@@ -40,11 +63,10 @@ def baixar_e_extrair_partes(caminho_completo: str):
 
     return partes
 
-
 def exportar_filtro_midi(caminho_completo: str, partes_ids: list):
     caminho_origem = os.path.join(ARQUIVOS_PATH, caminho_completo)
+
     pasta_base = os.path.dirname(caminho_origem)
-    
     nome_saida = f"temp_{'_'.join(partes_ids)}_{os.path.basename(caminho_completo)}"
     caminho_saida = os.path.join(pasta_base, nome_saida)
 
@@ -52,85 +74,116 @@ def exportar_filtro_midi(caminho_completo: str, partes_ids: list):
         return caminho_saida
 
     mid = mido.MidiFile(caminho_origem)
-    novo_mid = mido.MidiFile()
 
-    canais_alvo = [int(p.split('_')[1]) for p in partes_ids if p.startswith('channel')]
-    tracks_alvo_idx = [int(p.split('_')[1]) for p in partes_ids if p.startswith('track')]
+    novo_mid = mido.MidiFile(
+        type=mid.type,
+        ticks_per_beat=mid.ticks_per_beat
+    )
 
-    # Recria a mesma lista de trilhas mapeada na extração para garantir que o índice bata
-    trilhas_com_notas = [t for t in mid.tracks if any(msg.type == 'note_on' for msg in t)]
-    trilhas_reais_alvo = [trilhas_com_notas[i] for i in tracks_alvo_idx if i < len(trilhas_com_notas)]
+    canais_alvo = {
+        int(p.split("_")[1])
+        for p in partes_ids
+        if p.startswith("channel_")
+    }
+
+    trilhas_com_notas = [
+        t for t in mid.tracks
+        if any(m.type == "note_on" for m in t)
+    ]
+
+    tracks_alvo = {
+        trilhas_com_notas[int(p.split("_")[1])]
+        for p in partes_ids
+        if p.startswith("track_")
+    }
 
     for track in mid.tracks:
-        # Verifica se a trilha possui notas. Se NÃO possuir, é uma trilha de Meta (BPM/Tempo).
-        tem_notas = any(msg.type == 'note_on' for msg in track)
-        
-        if not tem_notas:
-            # Copia a trilha de tempo/controle obrigatoriamente para não perdermos o andamento
-            novo_mid.tracks.append(track)
-        else:
-            # Se for uma trilha com notas, verificamos se ela foi solicitada pelo usuário
-            if track in trilhas_reais_alvo:
-                novo_mid.tracks.append(track)
-            elif canais_alvo:
-                # Se o filtro é por canal, percorre as mensagens e copia apenas as do canal alvo + metadados
-                nova_track = mido.MidiTrack()
 
-                tempo_acumulado = 0
+        # ==========================
+        # FILTRO POR TRACK
+        # ==========================
+        if tracks_alvo:
 
-                for msg in track:
-                    tempo_acumulado += msg.time
+            if track in tracks_alvo:
 
-                    manter = (
-                        msg.is_meta
-                        or not hasattr(msg, "channel")
-                        or msg.channel in canais_alvo
+                eventos = _track_para_tempo_absoluto(track)
+
+                nova = _tempo_absoluto_para_track(eventos)
+
+                novo_mid.tracks.append(nova)
+
+            elif not any(m.type == "note_on" for m in track):
+                novo_mid.tracks.append(
+                    _tempo_absoluto_para_track(
+                        _track_para_tempo_absoluto(track)
                     )
+                )
 
-                    if manter:
-                        copia = msg.copy(time=tempo_acumulado)
-                        nova_track.append(copia)
-                        tempo_acumulado = 0
-                
-                # Só adiciona a track se ela reteve algum evento musical após o filtro
-                if any(msg.type == 'note_on' for msg in nova_track):
-                    novo_mid.tracks.append(nova_track)
-                
+            continue
+
+        # ==========================
+        # FILTRO POR CANAL
+        # ==========================
+
+        eventos = []
+
+        for tempo, msg in _track_para_tempo_absoluto(track):
+
+            manter = (
+                msg.is_meta
+                or not hasattr(msg, "channel")
+                or msg.channel in canais_alvo
+            )
+
+            if manter:
+                eventos.append((tempo, msg))
+
+        if eventos:
+            novo_mid.tracks.append(
+                _tempo_absoluto_para_track(eventos)
+            )
+
+    # Garante Program Change
     for track in novo_mid.tracks:
+
         canais = set()
-        possui_program_change = set()
+        possui_pc = set()
 
         for msg in track:
+
             if hasattr(msg, "channel"):
+
                 canais.add(msg.channel)
 
                 if msg.type == "program_change":
-                    possui_program_change.add(msg.channel)
+                    possui_pc.add(msg.channel)
 
-        faltando = canais - possui_program_change
+        faltando = canais - possui_pc
 
         if faltando:
+
             indice = 0
 
-            # pula os metaeventos iniciais
             while indice < len(track) and track[indice].is_meta:
                 indice += 1
 
             for canal in sorted(faltando):
+
                 track.insert(
                     indice,
                     mido.Message(
                         "program_change",
                         channel=canal,
-                        program=0,   # Acoustic Grand Piano
+                        program=0,
                         time=0
                     )
                 )
-                indice += 1
-            
-    novo_mid.save(caminho_saida)
-    return caminho_saida
 
+                indice += 1
+
+    novo_mid.save(caminho_saida)
+
+    return caminho_saida
 
 def exportar_parte_para_midi(caminho_completo: str, parte_id: str):
     # Reaproveita a lógica blindada acima para não duplicar código e manter os mesmos mapeamentos de índice
@@ -170,7 +223,10 @@ def nota_para_midi(nota_str):
     nome = nome.capitalize()
     return notas_base[nome] + (int(oitava) + 1) * 12
 
-def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo):
+def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo, overrides=None):
+    if overrides is None:
+        overrides = {}
+
     caminho_local = os.path.join(ARQUIVOS_PATH, caminho_completo)
     mid = mido.MidiFile(caminho_local)
     
@@ -210,23 +266,62 @@ def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo):
         midi_val = nota_para_midi(item['nota_musical'])
         mapa_gaita[midi_val] = item['comando_gaita']
         
+    comandos_disponiveis = list(set(mapa_gaita.values()))
+    
     posicoes_validas = []
+    melhor_offset = None
+    menor_qtd_faltantes = float('inf')
+    notas_faltantes_do_melhor = []
     
     # 3. Algoritmo de Janela Deslizante (Oitavas)
     for offset in [-24, -12, 0, 12, 24]:
-        possivel = True
-        # Verifica se TODAS as notas existem na gaita para esta oitava
-        for nota in notas_unicas:
-            if (nota + offset) not in mapa_gaita:
-                possivel = False
-                break
+        faltantes_nesta_oitava = []
         
-        # Se cabe na gaita, traduz a melodia completa
-        if possivel:
-            tablatura = [mapa_gaita[n + offset] for n in notas_musica_ordenadas]
+        for nota in notas_unicas:
+            nota_alvo = nota + offset
+            # Se a nota alvo não tá na gaita e o usuário não enviou um override pra nota original
+            if nota_alvo not in mapa_gaita and str(nota) not in overrides:
+                faltantes_nesta_oitava.append(nota)
+        
+        # Se não falta nenhuma nota (ou todas as faltantes foram cobertas pelos overrides)
+        if len(faltantes_nesta_oitava) == 0:
+            tablatura = []
+            for n in notas_musica_ordenadas:
+                if str(n) in overrides:
+                    tablatura.append(overrides[str(n)])
+                else:
+                    tablatura.append(mapa_gaita[n + offset])
+                    
             posicoes_validas.append({
                 "offset": offset,
                 "tablatura": tablatura
             })
-            
-    return posicoes_validas
+        else:
+            # Guarda o offset que exige o menor número de adaptações
+            if len(faltantes_nesta_oitava) < menor_qtd_faltantes:
+                menor_qtd_faltantes = len(faltantes_nesta_oitava)
+                melhor_offset = offset
+                notas_faltantes_do_melhor = faltantes_nesta_oitava
+                
+    # Se achou pelo menos uma posição onde a música cabe perfeitamente
+    if posicoes_validas:
+        return posicoes_validas
+        
+    # 4. Se a música é fisicamente impossível na gaita, prepara os dados pro Modal
+    detalhes_faltantes = []
+    for nota in notas_faltantes_do_melhor:
+        nota_alvo = nota + melhor_offset
+        # Matemática: acha a chave do mapa (nota na gaita) cuja diferença para a nota alvo é a menor possível
+        nota_mais_proxima = min(mapa_gaita.keys(), key=lambda k: abs(k - nota_alvo))
+        comando_sugerido = mapa_gaita[nota_mais_proxima]
+        
+        detalhes_faltantes.append({
+            "nota_midi_original": nota,
+            "sugestao_comando": comando_sugerido
+        })
+        
+    return {
+        "status": "requer_ajuste",
+        "detalhes": detalhes_faltantes,
+        "comandos_disponiveis": sorted(comandos_disponiveis, key=lambda x: (len(x), x)) # Ordena os comandos de forma limpa
+    }
