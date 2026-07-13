@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "@supabase/supabase-js": "^2.105.3",
-    "html-midi-player": "^1.6.0"
+    "@magenta/music": "^1.23.1",
+    "@supabase/supabase-js": "^2.105.3"
   }
 }

@@ -6,20 +6,12 @@ from dotenv import load_dotenv
 load_dotenv()
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
-# Define a pasta raiz de armazenamento local
 ARQUIVOS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../midiarchives'))
 
 def baixar_e_extrair_partes(caminho_completo: str):
-    """
-    caminho_completo: ex '3/1782251607177_samurai.mid'
-    """
-    # Define o caminho local mantendo a estrutura de pastas
     caminho_local = os.path.join(ARQUIVOS_PATH, caminho_completo)
-
-    # Garante que a subpasta exista localmente antes de baixar
     os.makedirs(os.path.dirname(caminho_local), exist_ok=True)
 
-    # 1. Baixa do Supabase se não existir localmente
     if not os.path.exists(caminho_local):
         try:
             response = supabase.storage.from_("Arquivos MIDI").download(caminho_completo)
@@ -28,11 +20,9 @@ def baixar_e_extrair_partes(caminho_completo: str):
         except Exception as e:
             raise Exception(f"Erro ao baixar '{caminho_completo}' do Supabase: {str(e)}")
 
-    # 2. Processa com mido
     mid = mido.MidiFile(caminho_local)
     partes = []
     
-    # Filtra trilhas com conteúdo musical
     trilhas_com_notas = [t for t in mid.tracks if any(msg.type == 'note_on' for msg in t)]
 
     if len(trilhas_com_notas) > 1:
@@ -49,41 +39,11 @@ def baixar_e_extrair_partes(caminho_completo: str):
 
     return partes
 
-def exportar_parte_para_midi(caminho_completo: str, parte_id: str):
-    caminho_origem = os.path.join(ARQUIVOS_PATH, caminho_completo)
-    # Define um caminho de saída na mesma pasta do arquivo original
-    pasta_base = os.path.dirname(caminho_completo)
-    nome_saida = f"temp_{parte_id}_{os.path.basename(caminho_completo)}"
-    caminho_saida = os.path.join(ARQUIVOS_PATH, pasta_base, nome_saida)
-    
-    mid = mido.MidiFile(caminho_origem)
-    novo_mid = mido.MidiFile()
-    track_destino = mido.MidiTrack()
-    novo_mid.tracks.append(track_destino)
-    
-    prefixo, valor = parte_id.split('_')
-    valor = int(valor)
-
-    for msg in mid:
-        # Lógica de filtragem corrigida
-        if msg.type in ['note_on', 'note_off']:
-            if prefixo == 'track':
-                # Nota: Em arquivos multi-track, o filtro é pelo índice da trilha
-                # Aqui você precisaria saber qual trilha o parte_id 'track_i' referencia
-                track_destino.append(msg)
-            elif prefixo == 'channel':
-                if hasattr(msg, 'channel') and msg.channel == valor:
-                    track_destino.append(msg)
-    
-    novo_mid.save(caminho_saida)
-    return caminho_saida
 
 def exportar_filtro_midi(caminho_completo: str, partes_ids: list):
-    # caminho_completo ex: '3/1782251607177_samurai.mid'
     caminho_origem = os.path.join(ARQUIVOS_PATH, caminho_completo)
     pasta_base = os.path.dirname(caminho_origem)
     
-    # Gera hash para evitar conflitos de cache
     nome_saida = f"temp_{'_'.join(partes_ids)}_{os.path.basename(caminho_completo)}"
     caminho_saida = os.path.join(pasta_base, nome_saida)
 
@@ -93,22 +53,84 @@ def exportar_filtro_midi(caminho_completo: str, partes_ids: list):
     mid = mido.MidiFile(caminho_origem)
     novo_mid = mido.MidiFile()
 
-    # Separa canais e tracks
     canais_alvo = [int(p.split('_')[1]) for p in partes_ids if p.startswith('channel')]
-    tracks_alvo = [int(p.split('_')[1]) for p in partes_ids if p.startswith('track')]
+    tracks_alvo_idx = [int(p.split('_')[1]) for p in partes_ids if p.startswith('track')]
 
-    for i, track in enumerate(mid.tracks):
-        # Verifica se esta track é uma das selecionadas ou se filtra por canal
-        if i in tracks_alvo:
+    # Recria a mesma lista de trilhas mapeada na extração para garantir que o índice bata
+    trilhas_com_notas = [t for t in mid.tracks if any(msg.type == 'note_on' for msg in t)]
+    trilhas_reais_alvo = [trilhas_com_notas[i] for i in tracks_alvo_idx if i < len(trilhas_com_notas)]
+
+    for track in mid.tracks:
+        # Verifica se a trilha possui notas. Se NÃO possuir, é uma trilha de Meta (BPM/Tempo).
+        tem_notas = any(msg.type == 'note_on' for msg in track)
+        
+        if not tem_notas:
+            # Copia a trilha de tempo/controle obrigatoriamente para não perdermos o andamento
             novo_mid.tracks.append(track)
-        elif canais_alvo:
-            nova_track = mido.MidiTrack()
-            # Mantém meta (tempo, etc)
-            for msg in track:
-                if msg.is_meta or (hasattr(msg, 'channel') and msg.channel in canais_alvo):
-                    nova_track.append(msg)
-            if len(nova_track) > 0:
-                novo_mid.tracks.append(nova_track)
+        else:
+            # Se for uma trilha com notas, verificamos se ela foi solicitada pelo usuário
+            if track in trilhas_reais_alvo:
+                novo_mid.tracks.append(track)
+            elif canais_alvo:
+                # Se o filtro é por canal, percorre as mensagens e copia apenas as do canal alvo + metadados
+                nova_track = mido.MidiTrack()
+
+                tempo_acumulado = 0
+
+                for msg in track:
+                    tempo_acumulado += msg.time
+
+                    manter = (
+                        msg.is_meta
+                        or not hasattr(msg, "channel")
+                        or msg.channel in canais_alvo
+                    )
+
+                    if manter:
+                        copia = msg.copy(time=tempo_acumulado)
+                        nova_track.append(copia)
+                        tempo_acumulado = 0
                 
+                # Só adiciona a track se ela reteve algum evento musical após o filtro
+                if any(msg.type == 'note_on' for msg in nova_track):
+                    novo_mid.tracks.append(nova_track)
+                
+    for track in novo_mid.tracks:
+        canais = set()
+        possui_program_change = set()
+
+        for msg in track:
+            if hasattr(msg, "channel"):
+                canais.add(msg.channel)
+
+                if msg.type == "program_change":
+                    possui_program_change.add(msg.channel)
+
+        faltando = canais - possui_program_change
+
+        if faltando:
+            indice = 0
+
+            # pula os metaeventos iniciais
+            while indice < len(track) and track[indice].is_meta:
+                indice += 1
+
+            for canal in sorted(faltando):
+                track.insert(
+                    indice,
+                    mido.Message(
+                        "program_change",
+                        channel=canal,
+                        program=0,   # Acoustic Grand Piano
+                        time=0
+                    )
+                )
+                indice += 1
+            
     novo_mid.save(caminho_saida)
     return caminho_saida
+
+
+def exportar_parte_para_midi(caminho_completo: str, parte_id: str):
+    # Reaproveita a lógica blindada acima para não duplicar código e manter os mesmos mapeamentos de índice
+    return exportar_filtro_midi(caminho_completo, [parte_id])
