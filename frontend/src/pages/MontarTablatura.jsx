@@ -11,87 +11,150 @@ const midiToNoteName = (midi) => {
 };
 
 // ================= CUSTOM HOOK DE ÁUDIO =================
+// ================= CUSTOM HOOK DE ÁUDIO =================
 function useMidiPlayer() {
-  const playerRef = useRef(null);
-  const sequenceRef = useRef(null);
-  
+  const [tempoAtual, setTempoAtual] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playingId, setPlayingId] = useState(null);
 
+  const playerRef = useRef(null);
+  const sequenceRef = useRef(null);
+  
+  // Referências para controle de tempo contínuo
+  const animationFrameRef = useRef(null);
+  const isPlayingRef = useRef(false);
+  const startTimeRef = useRef(0);
+  const pausedTimeRef = useRef(0);
+
   useEffect(() => {
     playerRef.current = new mm.Player();
-    return () => { if (playerRef.current) playerRef.current.stop(); };
+    return () => {
+      if (playerRef.current) playerRef.current.stop();
+      cancelAnimationFrame(animationFrameRef.current);
+    };
   }, []);
 
-  const stop = () => {
-    if (playerRef.current) {
-      playerRef.current.stop();
-      setIsPlaying(false);
-      setProgress(0);
-      setPlayingId(null);
+  // Laço contínuo para manter os brilhos e a barra atualizados em tempo real (60fps)
+  const atualizarVisual = () => {
+    if (isPlayingRef.current && sequenceRef.current) {
+      let tempoCalculado = (Date.now() - startTimeRef.current) / 1000 + pausedTimeRef.current;
+      
+      if (tempoCalculado > sequenceRef.current.totalTime) {
+        tempoCalculado = sequenceRef.current.totalTime;
+      }
+
+      setTempoAtual(tempoCalculado);
+      if (sequenceRef.current.totalTime > 0) {
+        setProgress((tempoCalculado / sequenceRef.current.totalTime) * 100);
+      }
+
+      animationFrameRef.current = requestAnimationFrame(atualizarVisual);
     }
+  };
+
+  const startLoop = () => {
+    isPlayingRef.current = true;
+    startTimeRef.current = Date.now();
+    cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = requestAnimationFrame(atualizarVisual);
+  };
+
+  const stopLoop = () => {
+    isPlayingRef.current = false;
+    cancelAnimationFrame(animationFrameRef.current);
+  };
+
+  const stop = () => {
+    if (playerRef.current) playerRef.current.stop();
+    stopLoop();
+    setIsPlaying(false);
+    setProgress(0);
+    setTempoAtual(0);
+    pausedTimeRef.current = 0;
+    setPlayingId(null);
   };
 
   const togglePlay = async (id, url) => {
     if (!playerRef.current) return;
 
+    // Se o usuário interagiu com a mesma música
     if (playingId === id) {
       if (isPlaying) {
+        // === SOLUÇÃO DO PAUSE QUE DEIXA A NOTA TOCANDO ===
         playerRef.current.pause();
+        
+        // Calculamos o momento exato do pause e forçamos o Player a ir para esse instante.
+        // Isso cancela fisicamente as caudas de som ativas (envia Note-Off para os osciladores)
+        const tempoExatoPausado = (Date.now() - startTimeRef.current) / 1000 + pausedTimeRef.current;
+        pausedTimeRef.current = tempoExatoPausado;
+        playerRef.current.seekTo(tempoExatoPausado);
+        
+        stopLoop();
         setIsPlaying(false);
       } else {
-        playerRef.current.resume();
+        // === SOLUÇÃO DO RESUME ===
         setIsPlaying(true);
+        startLoop();
+        playerRef.current.resume();
       }
       return;
     }
 
+    // Se é uma trilha nova sendo acionada
     stop();
     setPlayingId(id);
     setIsPlaying(true);
-    setProgress(0);
 
     try {
       const sequence = await mm.urlToNoteSequence(url);
-      if (sequence.notes) {
-        sequence.notes.forEach(note => {
-          if (note.instrument == null || note.instrument === undefined) note.instrument = 0;
-        });
+      if (!sequence.notes || sequence.notes.length === 0) {
+        setIsPlaying(false);
+        setPlayingId(null);
+        return;
       }
 
-      setDuration(sequence.totalTime);
-      sequenceRef.current = sequence;
-
-      playerRef.current.callbackObject = {
-        run(note) {
-          if (sequence.totalTime > 0) {
-            setProgress((note.startTime / sequence.totalTime) * 100);
-          }
+      // Previne falha em notas sem instrumento
+      sequence.notes.forEach(note => {
+        if (note.instrument === null || note.instrument === undefined) {
+          note.instrument = 0;
         }
-      };
+      });
 
+      sequenceRef.current = sequence;
+      setDuration(sequence.totalTime);
+      pausedTimeRef.current = 0;
+
+      startLoop();
+      
       await playerRef.current.start(sequence);
-      if (playerRef.current.getPlayState() !== 'paused') {
-        setIsPlaying(false);
-        setProgress(0);
-        setPlayingId(null);
+      
+      // Reseta tudo automaticamente ao chegar no final natural da música
+      if (isPlayingRef.current) {
+        stop();
       }
     } catch (err) {
-      console.error("Erro ao carregar ou reproduzir MIDI via Magenta:", err);
+      console.error("Erro ao carregar ou reproduzir MIDI:", err);
       stop();
     }
   };
 
   const seek = (percent) => {
     if (!playerRef.current || !sequenceRef.current) return;
+
     const timeInSeconds = (percent / 100) * duration;
-    playerRef.current.seekTo(timeInSeconds);
+    
+    // Sincroniza todos os relógios (visuais e internos) para o novo ponto na música
+    pausedTimeRef.current = timeInSeconds;
+    startTimeRef.current = Date.now();
+    setTempoAtual(timeInSeconds);
     setProgress(percent);
+
+    playerRef.current.seekTo(timeInSeconds);
   };
 
-  return { togglePlay, stop, seek, progress, duration, isPlaying, playingId };
+  return { togglePlay, stop, seek, progress, duration, isPlaying, playingId, tempoAtual };
 }
 
 // ================= COMPONENTE PRINCIPAL =================
@@ -125,8 +188,37 @@ export default function MontarTablatura() {
 
   const [linhasLetra, setLinhasLetra] = useState([]);
   const [mostrarPreview, setMostrarPreview] = useState(false);
+  
+  const [cardsExpandidos, setCardsExpandidos] = useState({});
+  const alternarExpansaoParte = (parteId) => {
+    setCardsExpandidos(prev => ({
+      ...prev,
+      [parteId]: !prev[parteId]
+    }));
+  };
 
-  const { togglePlay, stop, seek, progress, isPlaying, playingId } = useMidiPlayer();
+  const { togglePlay, stop, seek, progress, isPlaying, playingId, tempoAtual } = useMidiPlayer();
+
+  const notaEstaTocando = (nota, tempo) => {
+    if (
+      !nota ||
+      nota.inicio === undefined ||
+      nota.fim === undefined
+    ) {
+      return false;
+    }
+
+    return (
+      tempo >= nota.inicio &&
+      tempo < nota.fim
+    );
+  };
+
+  const parteEstaTocando = (parteId) => {
+    const dados = notasPorParte[parteId];
+    if (!dados) return false;
+    return dados.some(nota => notaEstaTocando(nota, tempoAtual));
+  };
 
   useEffect(() => {
     if (letra) {
@@ -143,9 +235,10 @@ export default function MontarTablatura() {
   }, [letra, midiSelecionado, musicaId]);
 
   const atualizarNotasDoCard = (parteId, tablaturaArray) => {
-    const notasComId = tablaturaArray.map((valor, i) => ({
-      id: `nota-${parteId}-${i}-${Date.now()}`,
-      valor: valor,
+    const notasComId = tablaturaArray.map((notaObj) => ({
+      ...notaObj,
+      id: `nota-${parteId}-${notaObj.id}-${Date.now()}`,
+      valor: notaObj.comando, // Mantemos 'valor' para compatibilidade com o Drag and Drop
       parteOrigem: parteId
     }));
     setNotasPorParte(prev => ({ ...prev, [parteId]: notasComId }));
@@ -167,7 +260,7 @@ export default function MontarTablatura() {
       });
 
       const resData = await response.json();
-      const data = resData.posicoes; // O backend envelopa a resposta aqui
+      const data = resData.posicoes;
 
       if (data && data.status === "requer_ajuste") {
         setNotasPendentes(data.detalhes);
@@ -396,55 +489,100 @@ export default function MontarTablatura() {
                 {/* CARDS INDIVIDUAIS */}
                 {partesAdicionadas.map(parte => {
                   const oitavaInfo = dadosOitavas[parte.id];
+                  const cardExpandido = cardsExpandidos[parte.id] !== false; // Default para true
+                  const cardEstaTocando = parteEstaTocando(parte.id);
+
                   return (
                     <div key={parte.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-                      <div style={cardParteStyle}>
+                      
+                      {/* CARD PRINCIPAL */}
+                      <div
+                        onClick={() => alternarExpansaoParte(parte.id)}
+                        style={{
+                          ...cardParteStyle,
+                          ...(cardEstaTocando ? cardParteTocandoStyle : {})
+                        }}
+                      >
                         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, marginRight: '15px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <span style={cardParteNome}>{parte.nome}</span>
+                            <span style={cardParteNome}>
+                              {cardExpandido ? '▼' : '▶'} {parte.nome}
+                            </span>
                             
-                            {/* DROPDOWN DINÂMICO DE OITAVA */}
                             {oitavaInfo && oitavaInfo.posicoes.length > 1 && (
-                              <select 
-                                value={oitavaInfo.selecionada} 
-                                onChange={(e) => handleMudancaOitava(parte.id, parseInt(e.target.value))}
+                              <select
+                                value={oitavaInfo.selecionada}
+                                onClick={e => e.stopPropagation()}
+                                onChange={e => handleMudancaOitava(parte.id, parseInt(e.target.value))}
                                 style={selectOitavaStyle}
                               >
                                 {oitavaInfo.posicoes.map((p, idx) => (
                                   <option key={idx} value={idx}>
-                                    {p.offset === 0 ? 'Oitava Original' : (p.offset > 0 ? `+${p.offset/12} Oitava` : `${p.offset/12} Oitava`)}
+                                    {p.offset === 0 ? 'Oitava Original' : p.offset > 0 ? `+${p.offset / 12} Oitava` : `${p.offset / 12} Oitava`}
                                   </option>
                                 ))}
                               </select>
                             )}
                           </div>
 
-                          <div style={barraFundo} onClick={(e) => handleSeekClick(e, parte.id)}>
-                            <div style={{ ...barraProgresso, width: playingId === parte.id ? `${progress}%` : '0%' }}></div>
+                          <div
+                            style={barraFundo}
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleSeekClick(e, parte.id);
+                            }}
+                          >
+                            <div style={{ ...barraProgresso, width: playingId === parte.id ? `${progress}%` : '0%' }} />
                           </div>
                         </div>
 
                         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                          <button style={btnPlayCard} onClick={() => handlePlayClick(parte.id, parte.id)}>
+                          <button
+                            style={btnPlayCard}
+                            onClick={e => {
+                              e.stopPropagation();
+                              handlePlayClick(parte.id, parte.id);
+                            }}
+                          >
                             {playingId === parte.id && isPlaying ? '⏸' : '▶'}
                           </button>
-                          <button style={btnRemoverCard} onClick={() => removerParteCard(parte.id)}>✖</button>
+                          <button
+                            style={btnRemoverCard}
+                            onClick={e => {
+                              e.stopPropagation();
+                              removerParteCard(parte.id);
+                            }}
+                          >
+                            ✖
+                          </button>
                         </div>
                       </div>
 
-                      <div style={notasCardInternoContainer}>
-                        {!notasPorParte[parte.id] ? (
-                          <span style={{ color: '#a0aec0', fontSize: '12px', fontStyle: 'italic' }}>Processando notas...</span>
-                        ) : notasPorParte[parte.id].length === 0 ? (
-                          <span style={{ color: '#cbd5e1', fontSize: '11px' }}>Todas as notas foram alocadas.</span>
-                        ) : (
-                          notasPorParte[parte.id].map(nota => (
-                            <div key={nota.id} draggable onDragStart={(e) => handleDragStart(e, nota)} style={cardNota}>
-                              {nota.valor}
-                            </div>
-                          ))
-                        )}
-                      </div>
+                      {/* CONTEÚDO EXPANDIDO */}
+                      {cardExpandido && (
+                        <div style={notasCardInternoContainer}>
+                          {!notasPorParte[parte.id] ? (
+                            <span style={{ color: '#a0aec0', fontSize: '12px', fontStyle: 'italic' }}>Processando notas...</span>
+                          ) : (
+                            notasPorParte[parte.id].map(nota => {
+                              const estaTocando = notaEstaTocando(nota, tempoAtual);
+                              return (
+                                <div
+                                  key={nota.id}
+                                  draggable
+                                  onDragStart={(e) => handleDragStart(e, nota)}
+                                  style={{
+                                    ...cardNota,
+                                    ...(estaTocando ? cardNotaTocandoStyle : {})
+                                  }}
+                                >
+                                  {nota.valor}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -492,10 +630,7 @@ export default function MontarTablatura() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', margin: '20px 0', maxHeight: '400px', overflowY: 'auto' }}>
                     {notasPendentes.map((nota, index) => (
-                        <div key={index} style={{
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0'
-                        }}>
+                        <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                             <div>
                                 <span style={{ fontWeight: 'bold', display: 'block', fontSize: '15px', color: '#0f172a' }}>
                                     Nota Original: {midiToNoteName(nota.nota_midi_original)}
@@ -507,14 +642,8 @@ export default function MontarTablatura() {
                             
                             <select 
                                 value={mapeamentoUsuario[nota.nota_midi_original]}
-                                onChange={(e) => setMapeamentoUsuario({
-                                    ...mapeamentoUsuario, 
-                                    [nota.nota_midi_original]: e.target.value
-                                })}
-                                style={{
-                                    padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1',
-                                    outline: 'none', cursor: 'pointer', fontWeight: 'bold', color: '#334155'
-                                }}
+                                onChange={(e) => setMapeamentoUsuario({ ...mapeamentoUsuario, [nota.nota_midi_original]: e.target.value })}
+                                style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', cursor: 'pointer', fontWeight: 'bold', color: '#334155' }}
                             >
                                 {comandosDaGaita.map(cmd => (
                                     <option key={cmd} value={cmd}>{cmd}</option>
@@ -525,12 +654,8 @@ export default function MontarTablatura() {
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                    <button onClick={cancelarAjustes} style={btnCancelarModal}>
-                        Cancelar e Remover
-                    </button>
-                    <button onClick={confirmarAjustes} style={btnConfirmarModal}>
-                        Confirmar Adaptações
-                    </button>
+                    <button onClick={cancelarAjustes} style={btnCancelarModal}>Cancelar e Remover</button>
+                    <button onClick={confirmarAjustes} style={btnConfirmarModal}>Confirmar Adaptações</button>
                 </div>
             </div>
         </div>
@@ -553,7 +678,8 @@ const selectOitavaStyle = { fontSize: '11px', padding: '4px', borderRadius: '6px
 const btnPrimary = { padding: '14px 24px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,123,255,0.2)' };
 const btnSecondary = { padding: '14px 24px', backgroundColor: '#e2e8f0', color: '#666', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' };
 
-const cardNota = { padding: '6px 12px', backgroundColor: '#007bff', color: 'white', fontWeight: 'bold', borderRadius: '8px', cursor: 'grab', userSelect: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '13px' };
+// As propriedades transition foram inseridas aqui nativamente para evitar pulos secos
+const cardNota = { padding: '6px 12px', backgroundColor: '#007bff', color: 'white', fontWeight: 'bold', borderRadius: '8px', cursor: 'grab', userSelect: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '13px', transition: 'box-shadow 0.05s ease, transform 0.05s ease, background-color 0.05s ease' };
 const linhaContainer = { display: 'flex', flexDirection: 'column', gap: '5px' };
 const zonaDrop = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', minHeight: '38px', padding: '6px 10px', backgroundColor: '#fff', border: '2px dashed #d8e3f0', borderRadius: '10px', transition: 'background-color 0.2s' };
 const cardNotaAlocada = { padding: '6px 12px', backgroundColor: '#1a73e8', color: 'white', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '14px' };
@@ -563,7 +689,8 @@ const btnContinuar = { position: 'absolute', bottom: '25px', right: '35px', padd
 
 const btnAdicionarParte = { padding: '0 20px', backgroundColor: '#238636', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 10px rgba(35,134,54,0.15)', fontSize: '14px' };
 const containerCardsMidi = { backgroundColor: '#f8fafc', padding: '15px', borderRadius: '14px', border: '1px solid #e2e8f0', marginTop: '10px' };
-const cardParteStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', marginBottom: '2px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' };
+
+const cardParteStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff', padding: '10px 14px', borderRadius: '8px', borderWidth: '2px', borderStyle: 'solid', borderColor: '#cbd5e1', marginBottom: '2px', cursor: 'pointer', transition: 'box-shadow 0.08s ease, border-color 0.08s ease, transform 0.08s ease' };
 const cardParteNome = { fontWeight: 'bold', fontSize: '14px', color: '#334155' };
 const btnPlayAll = { padding: '6px 12px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,123,255,0.2)' };
 const btnPlayCard = { width: '28px', height: '28px', backgroundColor: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' };
@@ -573,8 +700,21 @@ const notasCardInternoContainer = { display: 'flex', flexWrap: 'wrap', gap: '8px
 const barraFundo = { width: '100%', height: '8px', backgroundColor: '#e2e8f0', borderRadius: '4px', marginTop: '8px', cursor: 'pointer', overflow: 'hidden', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.1)' };
 const barraProgresso = { height: '100%', backgroundColor: '#007bff', transition: 'width 0.1s linear', borderRadius: '4px' };
 
-// Estilos do Modal
 const modalOverlay = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 };
 const modalContent = { backgroundColor: 'white', padding: '30px', borderRadius: '16px', width: '90%', maxWidth: '550px', boxShadow: '0 10px 25px rgba(0,0,0,0.2)' };
 const btnCancelarModal = { padding: '10px 18px', backgroundColor: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' };
 const btnConfirmarModal = { padding: '10px 18px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 4px 10px rgba(0,123,255,0.2)' };
+
+// Efeitos de brilho acoplados via JavaScript dinâmico
+const cardParteTocandoStyle = {
+  borderColor: '#38bdf8',
+  boxShadow: '0 0 8px rgba(14, 165, 233, 0.8), 0 0 20px rgba(14, 165, 233, 0.4)',
+  transform: 'scale(1.01)'
+};
+
+const cardNotaTocandoStyle = {
+  backgroundColor: '#facc15',
+  color: '#422006',
+  transform: 'scale(1.08)',
+  boxShadow: '0 0 8px rgba(250, 204, 21, 0.9), 0 0 18px rgba(250, 204, 21, 0.5)'
+};
