@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import * as mm from '@magenta/music';
 
-// Função auxiliar para traduzir o número MIDI em nota musical no Modal
+// ================= AUXILIAR =================
 const midiToNoteName = (midi) => {
   const notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
   const octave = Math.floor(midi / 12) - 1;
@@ -10,136 +10,363 @@ const midiToNoteName = (midi) => {
   return `${note}${octave}`;
 };
 
-// ================= CUSTOM HOOK DE ÁUDIO =================
-// ================= CUSTOM HOOK DE ÁUDIO =================
-// ================= CUSTOM HOOK DE ÁUDIO =================
+// ================= CUSTOM HOOK =================
 function useMidiPlayer() {
-  const [tempoAtual, setTempoAtual] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [playingId, setPlayingId] = useState(null);
+  // ════════════════════════════════════════
+  // FATOR DE AMPLIFICAÇÃO GERAL DE VOLUME
+  // (aumente se o som ainda estiver baixo)
+  // ════════════════════════════════════════
+  const VOLUME_BOOST = 10;   // 10x = +20dB
 
+  const audioCtxRef = useRef(null);
   const playerRef = useRef(null);
-  const sequenceRef = useRef(null);
-  
-  // Refs absolutas: Blindam o relógio contra re-renderizações (expandir cards)
-  const requestRef = useRef(null);
   const isPlayingRef = useRef(false);
+  const playingIdRef = useRef(null);
+  const totalDurationRef = useRef(0);
   const startTimeRef = useRef(0);
   const pausedTimeRef = useRef(0);
+  const animationRef = useRef(null);
+  const currentVolumesRef = useRef({});
+  const currentPartesIdsRef = useRef([]);
+  const currentMidiPathRef = useRef('');
+  const sequenceRef = useRef(null);
 
-  useEffect(() => {
-    playerRef.current = new mm.Player();
-    return () => {
-      if (playerRef.current) playerRef.current.stop();
-      cancelAnimationFrame(requestRef.current);
+  const debounceTimerRef = useRef(null);
+
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playingId, setPlayingId] = useState(null);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [tempoAtual, setTempoAtual] = useState(0);
+  const [volumes, setVolumesState] = useState({});
+
+  const extractInstrumentNumber = (id) => {
+    const numStr = String(id).replace(/\D/g, '');
+    return numStr ? parseInt(numStr, 10) : 0;
+  };
+
+  const getAudioContext = () => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume();
+    }
+    return audioCtxRef.current;
+  };
+
+  const loadCombinedSequence = async (partesIds, midiPath) => {
+    let combinedNotes = [];
+    let maxTime = 0;
+    let firstSeq = null;
+
+    for (const parteId of partesIds) {
+      const url = `http://127.0.0.1:8000/midi/play/${midiPath}?partes=${parteId}&_t=${Date.now()}`;
+      const seq = await mm.urlToNoteSequence(url);
+      if (!seq || !seq.notes || seq.notes.length === 0) {
+        throw new Error(`Parte ${parteId} não possui notas.`);
+      }
+      if (!firstSeq) firstSeq = seq;
+      const volume = currentVolumesRef.current[parteId] ?? 1;
+      const instrumentNum = extractInstrumentNumber(parteId);
+      seq.notes.forEach(note => {
+        combinedNotes.push({
+          ...note,
+          instrument: instrumentNum,
+          velocity: Math.min(1, Math.max(0, volume))   // volume de 0 a 1
+        });
+      });
+      if (seq.totalTime > maxTime) maxTime = seq.totalTime;
+    }
+
+    if (!firstSeq) throw new Error('Nenhuma sequência carregada.');
+
+    const combinedSequence = {
+      ...firstSeq,
+      notes: combinedNotes,
+      totalTime: maxTime,
+      tempos: [],
+      timeSignatures: firstSeq.timeSignatures || [{ time: 0, numerator: 4, denominator: 4 }]
     };
-  }, []);
+    delete combinedSequence.qpm;
+    delete combinedSequence.quantizationInfo;
 
-  const atualizarVisual = () => {
-    if (isPlayingRef.current && sequenceRef.current) {
-      let tempoCalculado = (Date.now() - startTimeRef.current) / 1000 + pausedTimeRef.current;
-      if (tempoCalculado > sequenceRef.current.totalTime) {
-        tempoCalculado = sequenceRef.current.totalTime;
-      }
-      
-      setTempoAtual(tempoCalculado);
-      if (sequenceRef.current.totalTime > 0) {
-        setProgress((tempoCalculado / sequenceRef.current.totalTime) * 100);
-      }
-      
-      requestRef.current = requestAnimationFrame(atualizarVisual);
+    totalDurationRef.current = maxTime;
+    currentPartesIdsRef.current = partesIds;
+    currentMidiPathRef.current = midiPath;
+    sequenceRef.current = combinedSequence;
+    setDuration(maxTime);
+    return combinedSequence;
+  };
+
+  const setupPlayer = () => {
+    const ctx = getAudioContext();
+    if (playerRef.current) {
+      try { playerRef.current.stop(); } catch {}
+    }
+    playerRef.current = new mm.Player(ctx);
+    if (playerRef.current.synth) {
+      playerRef.current.synth.maxPolyphony = 512;
     }
   };
 
-  const startLoop = () => {
-    isPlayingRef.current = true;
-    startTimeRef.current = Date.now();
-    cancelAnimationFrame(requestRef.current);
-    requestRef.current = requestAnimationFrame(atualizarVisual);
-  };
-
-  const stopLoop = () => {
+  const stopAll = () => {
+    if (playerRef.current) {
+      try { playerRef.current.stop(); } catch {}
+      playerRef.current = null;
+    }
     isPlayingRef.current = false;
-    cancelAnimationFrame(requestRef.current);
-  };
-
-  const stop = () => {
-    if (playerRef.current) playerRef.current.stop();
-    stopLoop();
+    playingIdRef.current = null;
     setIsPlaying(false);
+    setPlayingId(null);
     setProgress(0);
     setTempoAtual(0);
     pausedTimeRef.current = 0;
-    setPlayingId(null);
+    startTimeRef.current = 0;
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
   };
 
-  const togglePlay = async (id, url) => {
-    if (!playerRef.current) return;
+  const pauseAll = () => {
+    if (playerRef.current) {
+      try { playerRef.current.pause(); } catch {}
+    }
+    isPlayingRef.current = false;
+    setIsPlaying(false);
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+    pausedTimeRef.current = tempoAtual;
+  };
 
-    if (playingId === id) {
-      if (isPlaying) {
-        // PAUSE: Usamos .stop() para silenciar os osciladores instantaneamente
-        const tempoPausado = (Date.now() - startTimeRef.current) / 1000 + pausedTimeRef.current;
-        pausedTimeRef.current = tempoPausado;
-        playerRef.current.stop();
-        stopLoop();
-        setIsPlaying(false);
-      } else {
-        // RESUME: Inicia e avança para o ponto salvo
-        setIsPlaying(true);
-        startLoop();
-        playerRef.current.start(sequenceRef.current).catch(e => console.error(e));
-        playerRef.current.seekTo(pausedTimeRef.current);
-      }
+  const resumeAll = () => {
+    const seekTime = pausedTimeRef.current;
+    if (!playerRef.current) {
+      startAll(currentPartesIdsRef.current, currentMidiPathRef.current, seekTime);
       return;
     }
-
-    stop();
-    setPlayingId(id);
-    setIsPlaying(true);
-    pausedTimeRef.current = 0;
-
     try {
-      const sequence = await mm.urlToNoteSequence(url);
-      if (!sequence.notes || sequence.notes.length === 0) {
-        stop();
-        return;
-      }
-
-      sequence.notes.forEach(note => {
-        if (note.instrument === null || note.instrument === undefined) note.instrument = 0;
-      });
-
-      sequenceRef.current = sequence;
-      setDuration(sequence.totalTime);
-
-      startLoop();
-      await playerRef.current.start(sequence);
-      
-      if (isPlayingRef.current) stop(); // Fim natural da música
-    } catch (err) {
-      console.error("Erro ao reproduzir MIDI:", err);
-      stop();
+      playerRef.current.seekTo(seekTime);
+      playerRef.current.resume();
+    } catch (e) {
+      console.warn('Falha ao retomar, recriando player');
+      playerRef.current.stop();
+      playerRef.current = null;
+      startAll(currentPartesIdsRef.current, currentMidiPathRef.current, seekTime);
+      return;
     }
+    isPlayingRef.current = true;
+    playingIdRef.current = 'ALL';
+    setIsPlaying(true);
+    setPlayingId('ALL');
+    startTimeRef.current = performance.now() - seekTime * 1000;
+    if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    updateProgressLoop();
+  };
+
+  const startAll = async (partesIds, midiPath, startTime = 0) => {
+    try {
+      stopAll();
+      getAudioContext();
+
+      const combinedSequence = await loadCombinedSequence(partesIds, midiPath);
+      setupPlayer();
+
+      playerRef.current.start(combinedSequence, undefined, startTime)
+        .then(() => applyAllGains())
+        .catch(err => console.error('Erro no player.start:', err));
+
+      isPlayingRef.current = true;
+      playingIdRef.current = 'ALL';
+      setIsPlaying(true);
+      setPlayingId('ALL');
+      startTimeRef.current = performance.now() - startTime * 1000;
+      pausedTimeRef.current = startTime;
+      setTempoAtual(startTime);
+      setProgress((startTime / (totalDurationRef.current || 1)) * 100);
+
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      updateProgressLoop();
+    } catch (err) {
+      console.error('Erro ao iniciar reprodução:', err);
+      setIsPlaying(false);
+      setPlayingId(null);
+      isPlayingRef.current = false;
+      playingIdRef.current = null;
+    }
+  };
+
+  const updateProgressLoop = () => {
+    if (!isPlayingRef.current) return;
+    const elapsed = (performance.now() - startTimeRef.current) / 1000;
+    const current = Math.min(elapsed, totalDurationRef.current || 1);
+    setTempoAtual(current);
+    setProgress((current / (totalDurationRef.current || 1)) * 100);
+    if (current >= (totalDurationRef.current || 1)) {
+      isPlayingRef.current = false;
+      playingIdRef.current = null;
+      setIsPlaying(false);
+      setPlayingId(null);
+      setProgress(100);
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      return;
+    }
+    animationRef.current = requestAnimationFrame(updateProgressLoop);
   };
 
   const seek = (percent) => {
-    if (!playerRef.current || !sequenceRef.current) return;
-    const timeInSeconds = (percent / 100) * duration;
-    
-    pausedTimeRef.current = timeInSeconds;
-    startTimeRef.current = Date.now();
-    playerRef.current.seekTo(timeInSeconds);
-    
-    setTempoAtual(timeInSeconds);
+    if (!totalDurationRef.current) return;
+    const targetTime = (percent / 100) * totalDurationRef.current;
+
+    if (isPlayingRef.current && playerRef.current) {
+      try {
+        playerRef.current.seekTo(targetTime);
+        startTimeRef.current = performance.now() - targetTime * 1000;
+      } catch (e) {
+        console.error('Erro no seek ao vivo:', e);
+      }
+    }
+
+    pausedTimeRef.current = targetTime;
+    setTempoAtual(targetTime);
     setProgress(percent);
   };
 
-  return { togglePlay, stop, seek, progress, duration, isPlaying, playingId, tempoAtual };
-}
+  // ✅ APLICA GANHO MULTIPLICADO USANDO O MÉTODO CORRETO (Player.setGain)
+  const applyAllGains = () => {
+    if (!playerRef.current) return;
+    Object.entries(currentVolumesRef.current).forEach(([parteId, vol]) => {
+      const instrumentNum = extractInstrumentNumber(parteId);
+      try {
+        playerRef.current.setGain(vol * VOLUME_BOOST, instrumentNum);
+      } catch (e) {}
+    });
+  };
 
+  // Feedback imediato (arrastar o slider)
+  const applyImmediateGain = (parteId, normalized) => {
+    if (!playerRef.current) return;
+    const instrumentNum = extractInstrumentNumber(parteId);
+    try {
+      playerRef.current.setGain(normalized * VOLUME_BOOST, instrumentNum);
+    } catch (e) {}
+  };
+
+  // Recarga completa da sequência (debounce)
+  const applyVolumeChangeWithReload = async (parteId, normalized) => {
+    if (currentPartesIdsRef.current.length === 0 || !currentMidiPathRef.current) return;
+
+    const wasPlaying = isPlayingRef.current;
+    const currentTime = wasPlaying ? tempoAtual : pausedTimeRef.current;
+
+    if (playerRef.current) {
+      try { playerRef.current.stop(); } catch {}
+      playerRef.current = null;
+    }
+
+    const newSeq = await loadCombinedSequence(
+      currentPartesIdsRef.current,
+      currentMidiPathRef.current
+    );
+
+    const ctx = getAudioContext();
+    const newPlayer = new mm.Player(ctx);
+    playerRef.current = newPlayer;
+    if (newPlayer.synth) newPlayer.synth.maxPolyphony = 512;
+
+    if (wasPlaying) {
+      newPlayer.start(newSeq, undefined, currentTime)
+        .then(() => applyAllGains())
+        .catch(err => {
+          console.error('volume: erro ao retomar', err);
+          isPlayingRef.current = false;
+          setIsPlaying(false);
+          playerRef.current = null;
+        });
+      startTimeRef.current = performance.now() - currentTime * 1000;
+      pausedTimeRef.current = currentTime;
+    } else {
+      pausedTimeRef.current = currentTime;
+      sequenceRef.current = newSeq;
+      setTempoAtual(currentTime);
+      setProgress((currentTime / (totalDurationRef.current || 1)) * 100);
+    }
+  };
+
+  // Slider com debounce (recarga pesada a cada 500ms de inatividade)
+  const setVolume = (parteId, vol) => {
+    const normalized = Math.min(1, Math.max(0, vol));
+    setVolumesState(prev => ({ ...prev, [parteId]: normalized }));
+    currentVolumesRef.current[parteId] = normalized;
+
+    // Aplica ganho IMEDIATAMENTE (feedback instantâneo, boost incluso)
+    applyImmediateGain(parteId, normalized);
+
+    // Agenda a recarga completa para 500ms depois da última alteração
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      debounceTimerRef.current = null;
+      applyVolumeChangeWithReload(parteId, normalized);
+    }, 500);
+  };
+
+  const togglePlayAll = async (partesIds, midiPath, volumesObj) => {
+    Object.keys(volumesObj || {}).forEach(id => {
+      currentVolumesRef.current[id] = volumesObj[id] ?? 1;
+    });
+
+    if (!midiPath) {
+      console.error('MIDI não selecionado');
+      return;
+    }
+    if (!Array.isArray(partesIds) || partesIds.length === 0) {
+      console.error('Nenhuma parte disponível');
+      return;
+    }
+
+    if (playingIdRef.current === 'ALL' && isPlayingRef.current) {
+      pauseAll();
+      return;
+    }
+
+    if (playingIdRef.current === 'ALL' && !isPlayingRef.current && playerRef.current) {
+      resumeAll();
+      return;
+    }
+
+    await startAll(partesIds, midiPath, 0);
+  };
+
+  useEffect(() => {
+    return () => {
+      stopAll();
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close();
+      }
+    };
+  }, []);
+
+  return {
+    togglePlayAll,
+    stop: stopAll,
+    seek,
+    setVolumes: setVolume,
+    alterarVolume: setVolume,
+    progress,
+    duration,
+    isPlaying,
+    playingId,
+    tempoAtual,
+    volumes,
+  };
+}
 // ================= COMPONENTE PRINCIPAL =================
 export default function MontarTablatura() {
   const location = useLocation();
@@ -150,19 +377,17 @@ export default function MontarTablatura() {
   const nome = dadosRecebidos.nome || "Música Exemplo";
   const autor = dadosRecebidos.autor || "Autor Exemplo";
   const letra = dadosRecebidos.letra || "Insira a letra aqui...";
-  const midiSelecionado = dadosRecebidos.midi || null; 
+  const midiSelecionado = dadosRecebidos.midi || null;
 
   const [tomGaita, setTomGaita] = useState('C');
   const [tipoGaita, setTipoGaita] = useState('Diatônica');
-  const [parteMidi, setParteMidi] = useState('');
 
   const [partesDisponiveis, setPartesDisponiveis] = useState([]);
   const [partesAdicionadas, setPartesAdicionadas] = useState([]);
-  
+
   const [notasPorParte, setNotasPorParte] = useState({});
   const [dadosOitavas, setDadosOitavas] = useState({});
 
-  // --- Estados do Modal de Ajuste ---
   const [modalAjusteAberto, setModalAjusteAberto] = useState(false);
   const [notasPendentes, setNotasPendentes] = useState([]);
   const [comandosDaGaita, setComandosDaGaita] = useState([]);
@@ -171,7 +396,7 @@ export default function MontarTablatura() {
 
   const [linhasLetra, setLinhasLetra] = useState([]);
   const [mostrarPreview, setMostrarPreview] = useState(false);
-  
+
   const [cardsExpandidos, setCardsExpandidos] = useState({});
   const alternarExpansaoParte = (parteId) => {
     setCardsExpandidos(prev => ({
@@ -180,21 +405,24 @@ export default function MontarTablatura() {
     }));
   };
 
-  const { togglePlay, stop, seek, progress, isPlaying, playingId, tempoAtual } = useMidiPlayer();
+  const {
+    togglePlayAll,
+    stop,
+    seek,
+    progress,
+    duration,
+    isPlaying,
+    playingId,
+    tempoAtual,
+    alterarVolume,
+    setVolumes,
+    volumes = {}
+  } = useMidiPlayer();
 
+  // Detecção de nota tocando
   const notaEstaTocando = (nota, tempo) => {
-    if (
-      !nota ||
-      nota.inicio === undefined ||
-      nota.fim === undefined
-    ) {
-      return false;
-    }
-
-    return (
-      tempo >= nota.inicio &&
-      tempo < nota.fim
-    );
+    if (!nota || nota.inicio === undefined || nota.fim === undefined) return false;
+    return tempo >= nota.inicio && tempo < nota.fim;
   };
 
   const parteEstaTocando = (parteId) => {
@@ -203,7 +431,7 @@ export default function MontarTablatura() {
     return dados.some(nota => notaEstaTocando(nota, tempoAtual));
   };
 
-  // 1. Busca as partes na inicialização e já joga todas para o estado Adicionadas
+  // Carrega partes disponíveis
   useEffect(() => {
     if (letra) {
       setLinhasLetra(letra.split('\n').map((texto, index) => ({ id: `linha-${index}`, texto: texto, notas: [] })));
@@ -213,13 +441,13 @@ export default function MontarTablatura() {
         .then(res => res.json())
         .then(data => {
           setPartesDisponiveis(data.partes);
-          setPartesAdicionadas(data.partes); // <-- Auto-add todas as partes
+          setPartesAdicionadas(data.partes);
         })
         .catch(err => console.error("Erro ao buscar partes:", err));
     }
   }, [letra, midiSelecionado, musicaId]);
 
-  // 2. Dispara a tradução automaticamente (e retraduz sozinho se você mudar a configuração da Gaita)
+  // Dispara tradução quando partes mudam
   useEffect(() => {
     if (partesAdicionadas.length > 0) {
       partesAdicionadas.forEach(parte => {
@@ -232,7 +460,7 @@ export default function MontarTablatura() {
     const notasComId = tablaturaArray.map((notaObj) => ({
       ...notaObj,
       id: `nota-${parteId}-${notaObj.id}-${Date.now()}`,
-      valor: notaObj.comando, // Mantemos 'valor' para compatibilidade com o Drag and Drop
+      valor: notaObj.comando,
       parteOrigem: parteId
     }));
     setNotasPorParte(prev => ({ ...prev, [parteId]: notasComId }));
@@ -260,12 +488,12 @@ export default function MontarTablatura() {
         setNotasPendentes(data.detalhes);
         setComandosDaGaita(data.comandos_disponiveis);
         setParteEmAjuste(parteEncontrada);
-        
+
         const mapInicial = {};
         data.detalhes.forEach(item => { mapInicial[item.nota_midi_original] = item.sugestao_comando; });
         setMapeamentoUsuario(mapInicial);
         setModalAjusteAberto(true);
-      } 
+      }
       else if (Array.isArray(data) && data.length > 0) {
         setModalAjusteAberto(false);
         setDadosOitavas(prev => ({
@@ -273,29 +501,13 @@ export default function MontarTablatura() {
           [parteEncontrada.id]: { posicoes: data, selecionada: 0 }
         }));
         atualizarNotasDoCard(parteEncontrada.id, data[0].tablatura);
-      } 
+      }
       else {
-        alert(`Erro desconhecido ou falha na conversão.`);
-        removerParteCard(parteEncontrada.id);
+        console.error(`Erro na conversão.`);
       }
     } catch (err) {
-      console.error("Erro na tradução:", err);
-      alert("Falha de conexão com a API.");
-      removerParteCard(parteEncontrada.id);
+      console.error("Falha de conexão com a API na tradução.");
     }
-  };
-
-  const adicionarParteCard = async () => {
-    if (!parteMidi) return alert("Selecione uma parte do MIDI!");
-    if (partesAdicionadas.find(p => p.id === parteMidi)) return alert("Esta parte já foi adicionada!");
-
-    const parteEncontrada = partesDisponiveis.find(p => p.id === parteMidi);
-    if (!parteEncontrada) return;
-
-    setPartesAdicionadas([...partesAdicionadas, parteEncontrada]);
-    setParteMidi(''); 
-    
-    await tentarTraduzirParte(parteEncontrada);
   };
 
   const confirmarAjustes = () => {
@@ -304,7 +516,6 @@ export default function MontarTablatura() {
 
   const cancelarAjustes = () => {
     setModalAjusteAberto(false);
-    removerParteCard(parteEmAjuste.id);
     setParteEmAjuste(null);
   };
 
@@ -313,19 +524,6 @@ export default function MontarTablatura() {
       ...prev, [parteId]: { ...prev[parteId], selecionada: novaOitavaIndex }
     }));
     atualizarNotasDoCard(parteId, dadosOitavas[parteId].posicoes[novaOitavaIndex].tablatura);
-  };
-
-  const removerParteCard = (parteId) => {
-    if (playingId === parteId || playingId === 'ALL') stop();
-    setPartesAdicionadas(prev => prev.filter(p => p.id !== parteId));
-    setNotasPorParte(prev => { const c = { ...prev }; delete c[parteId]; return c; });
-    setDadosOitavas(prev => { const c = { ...prev }; delete c[parteId]; return c; });
-  };
-
-  const handlePlayClick = (idOrigem, partesQuery) => {
-    if (!midiSelecionado) return;
-    const url = `http://127.0.0.1:8000/midi/play/${midiSelecionado.path}?partes=${partesQuery}&_t=${Date.now()}`;
-    togglePlay(idOrigem, url);
   };
 
   const handleSeekClick = (e, idClicado) => {
@@ -337,9 +535,9 @@ export default function MontarTablatura() {
   };
 
   // ================= DRAG AND DROP =================
-  const handleDragStart = (e, nota) => { 
-    e.dataTransfer.setData('notaId', nota.id); 
-    e.dataTransfer.setData('parteOrigem', nota.parteOrigem); 
+  const handleDragStart = (e, nota) => {
+    e.dataTransfer.setData('notaId', nota.id);
+    e.dataTransfer.setData('parteOrigem', nota.parteOrigem);
   };
   const handleDragOver = (e) => { e.preventDefault(); };
 
@@ -347,7 +545,7 @@ export default function MontarTablatura() {
     e.preventDefault();
     const notaId = e.dataTransfer.getData('notaId');
     const parteOrigem = e.dataTransfer.getData('parteOrigem');
-    
+
     let notaEncontrada = null;
     if (parteOrigem && notasPorParte[parteOrigem]) {
       notaEncontrada = notasPorParte[parteOrigem].find(n => n.id === notaId);
@@ -357,7 +555,7 @@ export default function MontarTablatura() {
         if (achou) notaEncontrada = achou;
       });
     }
-    
+
     if (notaEncontrada) {
       const origemEfetiva = notaEncontrada.parteOrigem;
       if (origemEfetiva && notasPorParte[origemEfetiva]) {
@@ -378,7 +576,7 @@ export default function MontarTablatura() {
       const novasLinhas = [...prev];
       const notaRemovida = novasLinhas[linhaIndex].notas.find(n => n.id === notaId);
       novasLinhas[linhaIndex].notas = novasLinhas[linhaIndex].notas.filter(n => n.id !== notaId);
-      
+
       if (notaRemovida && notaRemovida.parteOrigem && notaRemovida.parteOrigem !== 'manual') {
         setNotasPorParte(disponiveis => ({
           ...disponiveis,
@@ -434,11 +632,11 @@ export default function MontarTablatura() {
   return (
     <div style={pageStyle}>
       <div style={contentWrapper}>
-        
+
         {/* COLUNA ESQUERDA */}
         <div style={columnBox}>
           <h3 style={sectionTitle}>Configurações da Gaita</h3>
-          
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '25px' }}>
             <div>
               <label style={labelStyle}>Tom da Gaita</label>
@@ -459,28 +657,38 @@ export default function MontarTablatura() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                   <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#4a5568' }}>Partes Ativas:</span>
                   <div style={{ display: 'flex', flexDirection: 'column', minWidth: '100px' }}>
-                    <button style={btnPlayAll} onClick={() => handlePlayClick('ALL', partesAdicionadas.map(p => p.id).join(','))}>
+                    <button
+                      style={btnPlayAll}
+                      onClick={() => togglePlayAll(
+                        partesAdicionadas.map(p => p.id),
+                        midiSelecionado?.path,
+                        volumes
+                      )}
+                    >
                       {playingId === 'ALL' && isPlaying ? '⏸ Pause All' : '▶ Play All'}
                     </button>
                     {playingId === 'ALL' && (
-                      <div style={barraFundo} onClick={(e) => handleSeekClick(e, 'ALL')}>
-                         <div style={{ ...barraProgresso, width: `${progress}%` }} />
+                      <div
+                        style={barraFundo}
+                        onClick={(e) => handleSeekClick(e, 'ALL')}
+                      >
+                        <div
+                          style={{ ...barraProgresso, width: `${progress}%` }}
+                        />
                       </div>
                     )}
                   </div>
                 </div>
-                
+
                 {/* CARDS INDIVIDUAIS */}
-                {partesAdicionadas.map(parte => {7
+                {partesAdicionadas.map(parte => {
                   const oitavaInfo = dadosOitavas[parte.id];
-                  const cardExpandido = cardsExpandidos[parte.id] === true; // Default para true
+                  const cardExpandido = cardsExpandidos[parte.id] === true;
                   const cardEstaTocando = parteEstaTocando(parte.id);
 
                   return (
                     <div key={parte.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-                      
-                      {/* CARD PRINCIPAL */}
-                      {/* CARD PRINCIPAL REDUZIDO */}
+
                       <div
                         onClick={() => alternarExpansaoParte(parte.id)}
                         style={{
@@ -493,7 +701,7 @@ export default function MontarTablatura() {
                             <span style={cardParteNome}>
                               {cardExpandido ? '▼' : '▶'} {parte.nome}
                             </span>
-                            
+
                             {oitavaInfo && oitavaInfo.posicoes.length > 1 && (
                               <select
                                 value={oitavaInfo.selecionada}
@@ -510,14 +718,22 @@ export default function MontarTablatura() {
                             )}
                           </div>
 
-                          {/* NOVO: Slider de Volume no lugar da barra de progresso */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px' }} onClick={e => e.stopPropagation()}>
                             <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 'bold' }}>Volume</span>
-                            <input 
-                              type="range" 
-                              min="0" max="100" defaultValue="100" 
-                              style={{ flex: 1, height: '4px', cursor: 'pointer' }} 
-                              onChange={(e) => console.log(`Volume de ${parte.nome} ajustado para ${e.target.value}`)}
+                            <input
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.01"
+                              value={volumes[parte.id] ?? 1}
+                              onChange={e => {
+                                const novoVolume = parseFloat(e.target.value);
+                                alterarVolume(parte.id, novoVolume);
+                              }}
+                              style={{
+                                width: '100%',
+                                cursor: 'pointer'
+                              }}
                             />
                           </div>
                         </div>
@@ -586,43 +802,43 @@ export default function MontarTablatura() {
       {/* --- MODAL DE AJUSTE DE NOTAS --- */}
       {modalAjusteAberto && (
         <div style={modalOverlay}>
-            <div style={modalContent}>
-                <h3 style={{ marginTop: 0, color: '#1e293b' }}>Ajuste de Notas</h3>
-                <p style={{ color: '#475569', fontSize: '14px', lineHeight: '1.5' }}>
-                    A parte <strong>{parteEmAjuste?.nome}</strong> possui notas que não existem fisicamente na {tipoGaita} em {tomGaita}.
-                    Escolha as adaptações abaixo para contornar isso:
-                </p>
+          <div style={modalContent}>
+            <h3 style={{ marginTop: 0, color: '#1e293b' }}>Ajuste de Notas</h3>
+            <p style={{ color: '#475569', fontSize: '14px', lineHeight: '1.5' }}>
+              A parte <strong>{parteEmAjuste?.nome}</strong> possui notas que não existem fisicamente na {tipoGaita} em {tomGaita}.
+              Escolha as adaptações abaixo para contornar isso:
+            </p>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', margin: '20px 0', maxHeight: '400px', overflowY: 'auto' }}>
-                    {notasPendentes.map((nota, index) => (
-                        <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                            <div>
-                                <span style={{ fontWeight: 'bold', display: 'block', fontSize: '15px', color: '#0f172a' }}>
-                                    Nota Original: {midiToNoteName(nota.nota_midi_original)}
-                                </span>
-                                <span style={{ fontSize: '12px', color: '#64748b' }}>
-                                    Comando sugerido: <strong>{nota.sugestao_comando}</strong>
-                                </span>
-                            </div>
-                            
-                            <select 
-                                value={mapeamentoUsuario[nota.nota_midi_original]}
-                                onChange={(e) => setMapeamentoUsuario({ ...mapeamentoUsuario, [nota.nota_midi_original]: e.target.value })}
-                                style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', cursor: 'pointer', fontWeight: 'bold', color: '#334155' }}
-                            >
-                                {comandosDaGaita.map(cmd => (
-                                    <option key={cmd} value={cmd}>{cmd}</option>
-                                ))}
-                            </select>
-                        </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', margin: '20px 0', maxHeight: '400px', overflowY: 'auto' }}>
+              {notasPendentes.map((nota, index) => (
+                <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div>
+                    <span style={{ fontWeight: 'bold', display: 'block', fontSize: '15px', color: '#0f172a' }}>
+                      Nota Original: {midiToNoteName(nota.nota_midi_original)}
+                    </span>
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>
+                      Comando sugerido: <strong>{nota.sugestao_comando}</strong>
+                    </span>
+                  </div>
+
+                  <select
+                    value={mapeamentoUsuario[nota.nota_midi_original]}
+                    onChange={(e) => setMapeamentoUsuario({ ...mapeamentoUsuario, [nota.nota_midi_original]: e.target.value })}
+                    style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', cursor: 'pointer', fontWeight: 'bold', color: '#334155' }}
+                  >
+                    {comandosDaGaita.map(cmd => (
+                      <option key={cmd} value={cmd}>{cmd}</option>
                     ))}
+                  </select>
                 </div>
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                    <button onClick={cancelarAjustes} style={btnCancelarModal}>Cancelar e Remover</button>
-                    <button onClick={confirmarAjustes} style={btnConfirmarModal}>Confirmar Adaptações</button>
-                </div>
+              ))}
             </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button onClick={cancelarAjustes} style={btnCancelarModal}>Cancelar e Remover</button>
+              <button onClick={confirmarAjustes} style={btnConfirmarModal}>Confirmar Adaptações</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -643,7 +859,6 @@ const selectOitavaStyle = { fontSize: '11px', padding: '4px', borderRadius: '6px
 const btnPrimary = { padding: '14px 24px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,123,255,0.2)' };
 const btnSecondary = { padding: '14px 24px', backgroundColor: '#e2e8f0', color: '#666', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' };
 
-// As propriedades transition foram inseridas aqui nativamente para evitar pulos secos
 const cardNota = { padding: '6px 12px', backgroundColor: '#007bff', color: 'white', fontWeight: 'bold', borderRadius: '8px', cursor: 'grab', userSelect: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '13px', transition: 'box-shadow 0.05s ease, transform 0.05s ease, background-color 0.05s ease' };
 const linhaContainer = { display: 'flex', flexDirection: 'column', gap: '5px' };
 const zonaDrop = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', minHeight: '38px', padding: '6px 10px', backgroundColor: '#fff', border: '2px dashed #d8e3f0', borderRadius: '10px', transition: 'background-color 0.2s' };
@@ -670,7 +885,7 @@ const modalContent = { backgroundColor: 'white', padding: '30px', borderRadius: 
 const btnCancelarModal = { padding: '10px 18px', backgroundColor: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' };
 const btnConfirmarModal = { padding: '10px 18px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 4px 10px rgba(0,123,255,0.2)' };
 
-// Efeitos de brilho acoplados via JavaScript dinâmico
+// Efeitos de destaque
 const cardParteTocandoStyle = {
   borderColor: '#38bdf8',
   boxShadow: '0 0 8px rgba(14, 165, 233, 0.8), 0 0 20px rgba(14, 165, 233, 0.4)',
