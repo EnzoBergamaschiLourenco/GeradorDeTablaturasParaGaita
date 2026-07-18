@@ -12,7 +12,7 @@ const midiToNoteName = (midi) => {
 
 // ================= CUSTOM HOOK =================
 function useMidiPlayer() {
-  const VOLUME_BOOST = 10;
+  const VOLUME_BOOST = 10; // boost master via setGain
   const audioCtxRef = useRef(null);
   const playerRef = useRef(null);
   const isPlayingRef = useRef(false);
@@ -49,6 +49,37 @@ function useMidiPlayer() {
     return audioCtxRef.current;
   };
 
+  // Sanitiza a sequência: remove notas inválidas e ajusta tempos duplicados
+  const sanitizeSequence = (sequence) => {
+    if (!sequence.notes || sequence.notes.length === 0) return sequence;
+    
+    // 1. Remove notas com duração <= 0
+    let filtered = sequence.notes.filter(note => note.duration > 0);
+    
+    // 2. Ordena por startTime
+    filtered.sort((a, b) => a.startTime - b.startTime);
+    
+    // 3. Garante tempos estritamente crescentes (epsilon de 0.001s)
+    for (let i = 1; i < filtered.length; i++) {
+      if (filtered[i].startTime <= filtered[i-1].startTime) {
+        filtered[i].startTime = filtered[i-1].startTime + 0.001;
+      }
+    }
+    
+    // 4. Recalcula totalTime
+    let maxTime = 0;
+    filtered.forEach(note => {
+      const end = note.startTime + note.duration;
+      if (end > maxTime) maxTime = end;
+    });
+    
+    return {
+      ...sequence,
+      notes: filtered,
+      totalTime: maxTime
+    };
+  };
+
   const loadCombinedSequence = async (partesIds, midiPath) => {
     let combinedNotes = [];
     let maxTime = 0;
@@ -58,24 +89,24 @@ function useMidiPlayer() {
       const url = `http://127.0.0.1:8000/midi/play/${midiPath}?partes=${parteId}&_t=${Date.now()}`;
       const seq = await mm.urlToNoteSequence(url);
       if (!seq || !seq.notes || seq.notes.length === 0) {
-        throw new Error(`Parte ${parteId} não possui notas.`);
+        continue; // ignora partes vazias
       }
       if (!firstSeq) firstSeq = seq;
-      const volume = currentVolumesRef.current[parteId] ?? 1;
       const instrumentNum = extractInstrumentNumber(parteId);
       seq.notes.forEach(note => {
         combinedNotes.push({
           ...note,
-          instrument: instrumentNum,
-          velocity: Math.min(1, Math.max(0, volume))
+          instrument: instrumentNum
         });
       });
       if (seq.totalTime > maxTime) maxTime = seq.totalTime;
     }
 
-    if (!firstSeq) throw new Error('Nenhuma sequência carregada.');
+    if (!firstSeq || combinedNotes.length === 0) {
+      throw new Error('Nenhuma parte possui notas.');
+    }
 
-    const combinedSequence = {
+    let combinedSequence = {
       ...firstSeq,
       notes: combinedNotes,
       totalTime: maxTime,
@@ -85,11 +116,14 @@ function useMidiPlayer() {
     delete combinedSequence.qpm;
     delete combinedSequence.quantizationInfo;
 
-    totalDurationRef.current = maxTime;
+    // Aplica sanitização
+    combinedSequence = sanitizeSequence(combinedSequence);
+
+    totalDurationRef.current = combinedSequence.totalTime;
     currentPartesIdsRef.current = partesIds;
     currentMidiPathRef.current = midiPath;
     sequenceRef.current = combinedSequence;
-    setDuration(maxTime);
+    setDuration(combinedSequence.totalTime);
     return combinedSequence;
   };
 
@@ -327,8 +361,17 @@ function useMidiPlayer() {
   }, []);
 
   return {
-    togglePlayAll, stop, seek, setVolumes: setVolume, alterarVolume: setVolume,
-    progress, duration, isPlaying, playingId, tempoAtual, volumes,
+    togglePlayAll,
+    stop: stopAll,
+    seek,
+    setVolumes: setVolume,
+    alterarVolume: setVolume,
+    progress,
+    duration,
+    isPlaying,
+    playingId,
+    tempoAtual,
+    volumes,
   };
 }
 
@@ -351,6 +394,10 @@ export default function MontarTablatura() {
   const [partesAdicionadas, setPartesAdicionadas] = useState([]);
   const [notasPorParte, setNotasPorParte] = useState({});
   const [dadosOitavas, setDadosOitavas] = useState({});
+
+  // === ESTADOS PARA MULTISELEÇÃO ===
+  const [notasSelecionadas, setNotasSelecionadas] = useState([]);
+  const [ultimaNotaClicada, setUltimaNotaClicada] = useState(null);
 
   // === ESTADOS DE FILA PARA TRADUÇÃO SEQUENCIAL ===
   const [filaTraducao, setFilaTraducao] = useState([]);
@@ -509,36 +556,77 @@ export default function MontarTablatura() {
     seek(percent);
   };
 
-  // ================= DRAG AND DROP =================
-  const handleDragStart = (e, nota) => {
-    e.dataTransfer.setData('notaId', nota.id);
+  // ================= SELEÇÃO & DRAG AND DROP =================
+  const handleNotaClick = (e, parteId, nota, index) => {
+    // Evita selecionar notas que já estão na letra
+    if (notasAlocadasSet.has(nota.id)) return;
+    
+    // Evitar selecionar o texto acidentalmente com o shift
+    if (e.shiftKey) e.preventDefault();
+
+    if (e.ctrlKey || e.metaKey) {
+      // Toggle
+      setNotasSelecionadas(prev => {
+        if (prev.includes(nota.id)) return prev.filter(id => id !== nota.id);
+        return [...prev, nota.id];
+      });
+      setUltimaNotaClicada({ parteId, index });
+    } else if (e.shiftKey && ultimaNotaClicada && ultimaNotaClicada.parteId === parteId) {
+      // Seleção em massa (Range)
+      const start = Math.min(ultimaNotaClicada.index, index);
+      const end = Math.max(ultimaNotaClicada.index, index);
+      const rangeIds = notasPorParte[parteId].slice(start, end + 1).map(n => n.id);
+      
+      const newSet = new Set([...notasSelecionadas, ...rangeIds]);
+      setNotasSelecionadas(Array.from(newSet));
+    } else {
+      // Seleção Simples
+      setNotasSelecionadas([nota.id]);
+      setUltimaNotaClicada({ parteId, index });
+    }
   };
+
+  const handleDragStart = (e, nota) => {
+    let idsToDrag = notasSelecionadas;
+    // Se a pessoa arrastar uma nota que não está na seleção, 
+    // desconsideramos a seleção anterior e arrastamos apenas ela.
+    if (!idsToDrag.includes(nota.id)) {
+      idsToDrag = [nota.id];
+      setNotasSelecionadas([nota.id]); 
+    }
+    e.dataTransfer.setData('notasIds', JSON.stringify(idsToDrag));
+  };
+
   const handleDragOver = (e) => { e.preventDefault(); };
 
   const handleDrop = (e, columnLinhaIndex) => {
     e.preventDefault();
-    const notaId = e.dataTransfer.getData('notaId');
+    const notasIdsStr = e.dataTransfer.getData('notasIds');
+    if (!notasIdsStr) return;
+    const notasIds = JSON.parse(notasIdsStr);
 
-    let notaEncontrada = null;
+    const notasParaAdicionar = [];
+    
+    // Percorre os arrays na ordem para manter a sequência exata de como as notas aparecem
     Object.keys(notasPorParte).forEach(chave => {
-      const achou = notasPorParte[chave].find(n => n.id === notaId);
-      if (achou) notaEncontrada = achou;
+      notasPorParte[chave].forEach(n => {
+        if (notasIds.includes(n.id) && !notasAlocadasSet.has(n.id)) {
+          notasParaAdicionar.push(n);
+        }
+      });
     });
 
-    if (notaEncontrada) {
-      // Bloqueia adicionar a mesma nota duas vezes
-      const jaAlocada = notasAlocadasSet.has(notaId);
-      if (jaAlocada) return;
-
-      // Adiciona na linha (coluna da direita) APENAS, sem mutar o array diretamente
+    if (notasParaAdicionar.length > 0) {
       setLinhasLetra(prev => {
         const novasLinhas = [...prev];
         novasLinhas[columnLinhaIndex] = {
           ...novasLinhas[columnLinhaIndex],
-          notas: [...novasLinhas[columnLinhaIndex].notas, notaEncontrada]
+          notas: [...novasLinhas[columnLinhaIndex].notas, ...notasParaAdicionar]
         };
         return novasLinhas;
       });
+      // Limpa a seleção após alocar
+      setNotasSelecionadas([]);
     }
   };
 
@@ -636,28 +724,6 @@ export default function MontarTablatura() {
               <div style={containerCardsMidi}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                   <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#4a5568' }}>Partes Ativas:</span>
-                  <div style={{ display: 'flex', flexDirection: 'column', minWidth: '100px' }}>
-                    <button
-                      style={btnPlayAll}
-                      onClick={() => togglePlayAll(
-                        partesAdicionadas.map(p => p.id),
-                        midiSelecionado?.path,
-                        volumes
-                      )}
-                    >
-                      {playingId === 'ALL' && isPlaying ? '⏸ Pause All' : '▶ Play All'}
-                    </button>
-                    {playingId === 'ALL' && (
-                      <div
-                        style={barraFundo}
-                        onClick={(e) => handleSeekClick(e, 'ALL')}
-                      >
-                        <div
-                          style={{ ...barraProgresso, width: `${progress}%` }}
-                        />
-                      </div>
-                    )}
-                  </div>
                 </div>
 
                 {/* CARDS INDIVIDUAIS */}
@@ -709,10 +775,7 @@ export default function MontarTablatura() {
                                 const novoVolume = parseFloat(e.target.value);
                                 alterarVolume(parte.id, novoVolume);
                               }}
-                              style={{
-                                width: '100%',
-                                cursor: 'pointer'
-                              }}
+                              style={{ width: '100%', cursor: 'pointer' }}
                             />
                           </div>
                         </div>
@@ -724,12 +787,16 @@ export default function MontarTablatura() {
                           {!notasPorParte[parte.id] ? (
                             <span style={{ color: '#a0aec0', fontSize: '12px', fontStyle: 'italic' }}>Aguardando tradução...</span>
                           ) : (
-                            notasPorParte[parte.id].map(nota => {
+                            notasPorParte[parte.id].map((nota, index) => {
                               const estaTocando = notaEstaTocando(nota, tempoAtual);
                               const estaAlocada = notasAlocadasSet.has(nota.id);
+                              const estaSelecionada = notasSelecionadas.includes(nota.id);
                               
                               let estiloAplicado = { ...cardNota };
                               
+                              if (estaSelecionada && !estaAlocada) {
+                                estiloAplicado = { ...estiloAplicado, ...cardNotaSelecionadaStyle };
+                              }
                               if (estaAlocada) {
                                 estiloAplicado = { ...estiloAplicado, ...cardNotaAlocadaTransparente };
                               }
@@ -744,6 +811,7 @@ export default function MontarTablatura() {
                                 <div
                                   key={nota.id}
                                   draggable={!estaAlocada}
+                                  onClick={(e) => handleNotaClick(e, parte.id, nota, index)}
                                   onDragStart={(e) => {
                                     if (!estaAlocada) handleDragStart(e, nota);
                                   }}
@@ -775,13 +843,50 @@ export default function MontarTablatura() {
           flexDirection: 'column', 
           paddingBottom: '25px' 
         }}>
-          {/* Header fixo da coluna direita */}
-          <div style={{ marginBottom: '20px', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px', flexShrink: 0 }}>
-            <h2 style={{ color: '#333', margin: 0, fontSize: '24px' }}>{nome}</h2>
-            <span style={{ color: '#666' }}>{autor}</span>
+          {/* Header fixo da coluna direita com Título + Player */}
+          <div style={{ 
+            marginBottom: '20px', 
+            borderBottom: '1px solid #e2e8f0', 
+            paddingBottom: '15px', 
+            flexShrink: 0, 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            gap: '20px'
+          }}>
+            <div style={{ flex: 1 }}>
+              <h2 style={{ color: '#333', margin: 0, fontSize: '24px' }}>{nome}</h2>
+              <span style={{ color: '#666' }}>{autor}</span>
+            </div>
+
+            {/* PLAYER MOVIDO PARA A DIREITA */}
+            {partesAdicionadas.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: '220px' }}>
+                <button
+                  style={{...btnPlayAll, padding: '12px 18px', fontSize: '14px', borderRadius: '8px'}}
+                  onClick={() => togglePlayAll(
+                    partesAdicionadas.map(p => p.id),
+                    midiSelecionado?.path,
+                    volumes
+                  )}
+                >
+                  {playingId === 'ALL' && isPlaying ? '⏸ Pausar Música' : '▶ Tocar Música'}
+                </button>
+                {playingId === 'ALL' && (
+                  <div
+                    style={barraFundo}
+                    onClick={(e) => handleSeekClick(e, 'ALL')}
+                  >
+                    <div
+                      style={{ ...barraProgresso, width: `${progress}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Área scrollável das letras (independente da página externa) */}
+          {/* Área scrollável das letras */}
           <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', paddingBottom: '30px' }}>
               {linhasLetra.map((linha, index) => (
@@ -857,7 +962,6 @@ export default function MontarTablatura() {
 }
 
 /* ================= STYLES ================= */
-// AQUI: Foram removidos absolute, overflowX e posicionamentos que quebravam o sticky
 const pageStyle = { width: '100%', minHeight: '100vh', backgroundColor: '#f4f7fb', fontFamily: 'Arial, sans-serif', padding: '30px 20px', boxSizing: 'border-box' };
 const contentWrapper = { display: 'flex', gap: '30px', width: '100%', maxWidth: '1250px', margin: '0 auto', alignItems: 'flex-start' };
 const columnBox = { backgroundColor: 'white', padding: '30px', borderRadius: '24px', boxShadow: '0 15px 40px rgba(0,0,0,0.08)', boxSizing: 'border-box' };
@@ -870,7 +974,7 @@ const selectOitavaStyle = { fontSize: '11px', padding: '4px', borderRadius: '6px
 const btnPrimary = { padding: '14px 24px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,123,255,0.2)' };
 const btnSecondary = { padding: '14px 24px', backgroundColor: '#e2e8f0', color: '#666', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' };
 
-const cardNota = { padding: '6px 12px', backgroundColor: '#007bff', color: 'white', fontWeight: 'bold', borderRadius: '8px', cursor: 'grab', userSelect: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '13px', transition: 'box-shadow 0.05s ease, transform 0.05s ease, background-color 0.05s ease, opacity 0.1s ease' };
+const cardNota = { padding: '6px 12px', backgroundColor: '#007bff', color: 'white', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', userSelect: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '13px', transition: 'box-shadow 0.05s ease, transform 0.05s ease, background-color 0.05s ease, opacity 0.1s ease' };
 const linhaContainer = { display: 'flex', flexDirection: 'column', gap: '5px' };
 const zonaDrop = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', minHeight: '38px', padding: '6px 10px', backgroundColor: '#fff', border: '2px dashed #d8e3f0', borderRadius: '10px', transition: 'background-color 0.2s' };
 const cardNotaAlocada = { padding: '6px 12px', backgroundColor: '#1a73e8', color: 'white', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '14px' };
@@ -882,11 +986,13 @@ const containerCardsMidi = { backgroundColor: '#f8fafc', padding: '15px', border
 
 const cardParteStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff', padding: '10px 14px', borderRadius: '8px', borderWidth: '2px', borderStyle: 'solid', borderColor: '#cbd5e1', marginBottom: '2px', cursor: 'pointer', transition: 'box-shadow 0.08s ease, border-color 0.08s ease, transform 0.08s ease' };
 const cardParteNome = { fontWeight: 'bold', fontSize: '14px', color: '#334155' };
-const btnPlayAll = { padding: '6px 12px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,123,255,0.2)' };
+const btnPlayAll = { padding: '6px 12px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,123,255,0.2)', transition: 'background-color 0.2s' };
 
 const notasCardInternoContainer = { display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '10px', backgroundColor: '#edf2f7', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '14px' };
-const barraFundo = { width: '100%', height: '8px', backgroundColor: '#e2e8f0', borderRadius: '4px', marginTop: '8px', cursor: 'pointer', overflow: 'hidden', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.1)' };
-const barraProgresso = { height: '100%', backgroundColor: '#007bff', transition: 'width 0.1s linear', borderRadius: '4px' };
+
+/* === Barra de Progresso Redesenhada === */
+const barraFundo = { width: '100%', height: '14px', backgroundColor: '#e2e8f0', borderRadius: '10px', marginTop: '12px', cursor: 'pointer', overflow: 'hidden', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.1)' };
+const barraProgresso = { height: '100%', backgroundColor: '#007bff', transition: 'width 0.1s linear', borderRadius: '10px' };
 
 const modalOverlay = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 };
 const modalContent = { backgroundColor: 'white', padding: '30px', borderRadius: '16px', width: '90%', maxWidth: '550px', boxShadow: '0 10px 25px rgba(0,0,0,0.2)' };
@@ -895,11 +1001,18 @@ const btnConfirmarModal = { padding: '10px 18px', backgroundColor: '#007bff', co
 
 const btnRecarregar = { display: 'flex', justifyContent: 'center', alignItems: 'center', width: '32px', height: '32px', backgroundColor: '#e2e8f0', color: '#007bff', border: 'none', borderRadius: '8px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', transition: 'background-color 0.2s', paddingBottom: '2px' };
 
-// Novos estilos para os estados de alocação e reprodução
+/* Novos estilos Multi-seleção e Alocação */
+const cardNotaSelecionadaStyle = {
+  outline: '2px solid #0f172a', // Borda escura para indicar seleção
+  outlineOffset: '2px',
+  transform: 'scale(1.05)',
+  boxShadow: '0 4px 8px rgba(0,0,0,0.2)'
+};
+
 const cardNotaAlocadaTransparente = {
   opacity: 0.4,
   boxShadow: 'none',
-  cursor: 'default' // Indica que não pode arrastar
+  cursor: 'default'
 };
 
 const cardParteTocandoStyle = {
