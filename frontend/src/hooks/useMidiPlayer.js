@@ -9,7 +9,10 @@ export const midiToNoteName = (midi) => {
 };
 
 export function useMidiPlayer() {
-  const VOLUME_BOOST = 2; // boost master moderado (2x)
+  // Suprime aviso do Tone.js (não afeta áudio)
+  if (typeof window !== 'undefined' && window.Tone && window.Tone.context?.logger) {
+    window.Tone.context.logger.level = 'error';
+  }
 
   const audioCtxRef = useRef(null);
   const playerRef = useRef(null);
@@ -47,38 +50,21 @@ export function useMidiPlayer() {
     return audioCtxRef.current;
   };
 
-  /**
-   * Sanitiza a sequência: remove notas inválidas e ajusta tempos duplicados.
-   * Corrigido para calcular a duração real (endTime - startTime).
-   */
   const sanitizeSequence = (sequence) => {
     if (!sequence.notes || sequence.notes.length === 0) return sequence;
-    
-    // 1. Remove notas com duração <= 0 (usando endTime - startTime)
     let filtered = sequence.notes.filter(note => (note.endTime - note.startTime) > 0);
-    
-    // 2. Ordena por startTime
     filtered.sort((a, b) => a.startTime - b.startTime);
-    
-    // 3. Garante tempos estritamente crescentes (epsilon de 0.001s)
     for (let i = 1; i < filtered.length; i++) {
-      if (filtered[i].startTime <= filtered[i-1].startTime) {
-        filtered[i].startTime = filtered[i-1].startTime + 0.001;
+      if (filtered[i].startTime <= filtered[i - 1].startTime) {
+        filtered[i].startTime = filtered[i - 1].startTime + 0.001;
       }
     }
-    
-    // 4. Recalcula totalTime
     let maxTime = 0;
     filtered.forEach(note => {
-      const end = note.endTime; // endTime já é confiável
+      const end = note.endTime;
       if (end > maxTime) maxTime = end;
     });
-    
-    return {
-      ...sequence,
-      notes: filtered,
-      totalTime: maxTime
-    };
+    return { ...sequence, notes: filtered, totalTime: maxTime };
   };
 
   const loadCombinedSequence = async (partesIds, midiPath) => {
@@ -91,19 +77,21 @@ export function useMidiPlayer() {
       const seq = await mm.urlToNoteSequence(url);
       if (!seq || !seq.notes || seq.notes.length === 0) continue;
       if (!firstSeq) firstSeq = seq;
+      const volumeMultiplier = currentVolumesRef.current[parteId] ?? 1;
       const instrumentNum = extractInstrumentNumber(parteId);
       seq.notes.forEach(note => {
         combinedNotes.push({
           ...note,
-          instrument: instrumentNum
+          instrument: instrumentNum,
+          // Curva quadrática para variação de volume mais perceptível
+          velocity: Math.min(1, Math.max(0, note.velocity * volumeMultiplier * volumeMultiplier)),
         });
       });
       if (seq.totalTime > maxTime) maxTime = seq.totalTime;
     }
 
     if (!firstSeq || combinedNotes.length === 0) {
-      // Retorna sequência vazia – será tratada silenciosamente em startAll
-      return { notes: [], totalTime: 0, tempos: [], timeSignatures: [] };
+      throw new Error('Nenhuma parte possui notas.');
     }
 
     let combinedSequence = {
@@ -111,14 +99,12 @@ export function useMidiPlayer() {
       notes: combinedNotes,
       totalTime: maxTime,
       tempos: [],
-      timeSignatures: firstSeq.timeSignatures || [{ time: 0, numerator: 4, denominator: 4 }]
+      timeSignatures: firstSeq.timeSignatures || [{ time: 0, numerator: 4, denominator: 4 }],
     };
     delete combinedSequence.qpm;
     delete combinedSequence.quantizationInfo;
 
-    // Aplica sanitização (agora com cálculo correto de duração)
     combinedSequence = sanitizeSequence(combinedSequence);
-
     totalDurationRef.current = combinedSequence.totalTime;
     currentPartesIdsRef.current = partesIds;
     currentMidiPathRef.current = midiPath;
@@ -205,16 +191,9 @@ export function useMidiPlayer() {
       getAudioContext();
 
       const combinedSequence = await loadCombinedSequence(partesIds, midiPath);
-
-      // Se nenhuma nota válida, sai silenciosamente
-      if (combinedSequence.totalTime <= 0) {
-        return;
-      }
-
       setupPlayer();
 
       playerRef.current.start(combinedSequence, undefined, startTime)
-        .then(() => applyAllGains())
         .catch(err => {
           console.error('Erro no player.start:', err);
           setIsPlaying(false);
@@ -277,26 +256,10 @@ export function useMidiPlayer() {
     setProgress(percent);
   };
 
-  const applyAllGains = () => {
-    if (!playerRef.current) return;
-    Object.entries(currentVolumesRef.current).forEach(([parteId, vol]) => {
-      const instrumentNum = extractInstrumentNumber(parteId);
-      try {
-        playerRef.current.setGain(vol * VOLUME_BOOST, instrumentNum);
-      } catch (e) {}
-    });
-  };
-
-  const applyImmediateGain = (parteId, normalized) => {
-    if (!playerRef.current) return;
-    const instrumentNum = extractInstrumentNumber(parteId);
-    try {
-      playerRef.current.setGain(normalized * VOLUME_BOOST, instrumentNum);
-    } catch (e) {}
-  };
-
-  const applyVolumeChangeWithReload = async (parteId, normalized) => {
+  // Recarrega a sequência mantendo o instante atual (com debounce)
+  const applyVolumeChangeWithReload = async () => {
     if (currentPartesIdsRef.current.length === 0 || !currentMidiPathRef.current) return;
+
     const wasPlaying = isPlayingRef.current;
     const currentTime = wasPlaying ? tempoAtual : pausedTimeRef.current;
 
@@ -310,20 +273,12 @@ export function useMidiPlayer() {
       currentMidiPathRef.current
     );
 
-    if (newSeq.totalTime <= 0) {
-      stopAll();
-      return;
-    }
-
-    const ctx = getAudioContext();
-    const newPlayer = new mm.Player(ctx);
-    playerRef.current = newPlayer;
-    if (newPlayer.synth) newPlayer.synth.maxPolyphony = 512;
+    setupPlayer();
 
     if (wasPlaying) {
-      newPlayer.start(newSeq, undefined, currentTime)
-        .then(() => applyAllGains())
+      playerRef.current.start(newSeq, undefined, currentTime)
         .catch(err => {
+          console.error('volume: erro ao retomar', err);
           isPlayingRef.current = false;
           setIsPlaying(false);
           playerRef.current = null;
@@ -342,12 +297,11 @@ export function useMidiPlayer() {
     const normalized = Math.min(1, Math.max(0, vol));
     setVolumesState(prev => ({ ...prev, [parteId]: normalized }));
     currentVolumesRef.current[parteId] = normalized;
-    applyImmediateGain(parteId, normalized);
 
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
       debounceTimerRef.current = null;
-      applyVolumeChangeWithReload(parteId, normalized);
+      applyVolumeChangeWithReload();
     }, 500);
   };
 
