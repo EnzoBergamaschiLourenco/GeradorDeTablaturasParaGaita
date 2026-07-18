@@ -12,6 +12,7 @@ const midiToNoteName = (midi) => {
 
 // ================= CUSTOM HOOK DE ÁUDIO =================
 // ================= CUSTOM HOOK DE ÁUDIO =================
+// ================= CUSTOM HOOK DE ÁUDIO =================
 function useMidiPlayer() {
   const [tempoAtual, setTempoAtual] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -22,8 +23,8 @@ function useMidiPlayer() {
   const playerRef = useRef(null);
   const sequenceRef = useRef(null);
   
-  // Referências para controle de tempo contínuo
-  const animationFrameRef = useRef(null);
+  // Refs absolutas: Blindam o relógio contra re-renderizações (expandir cards)
+  const requestRef = useRef(null);
   const isPlayingRef = useRef(false);
   const startTimeRef = useRef(0);
   const pausedTimeRef = useRef(0);
@@ -32,38 +33,36 @@ function useMidiPlayer() {
     playerRef.current = new mm.Player();
     return () => {
       if (playerRef.current) playerRef.current.stop();
-      cancelAnimationFrame(animationFrameRef.current);
+      cancelAnimationFrame(requestRef.current);
     };
   }, []);
 
-  // Laço contínuo para manter os brilhos e a barra atualizados em tempo real (60fps)
   const atualizarVisual = () => {
     if (isPlayingRef.current && sequenceRef.current) {
       let tempoCalculado = (Date.now() - startTimeRef.current) / 1000 + pausedTimeRef.current;
-      
       if (tempoCalculado > sequenceRef.current.totalTime) {
         tempoCalculado = sequenceRef.current.totalTime;
       }
-
+      
       setTempoAtual(tempoCalculado);
       if (sequenceRef.current.totalTime > 0) {
         setProgress((tempoCalculado / sequenceRef.current.totalTime) * 100);
       }
-
-      animationFrameRef.current = requestAnimationFrame(atualizarVisual);
+      
+      requestRef.current = requestAnimationFrame(atualizarVisual);
     }
   };
 
   const startLoop = () => {
     isPlayingRef.current = true;
     startTimeRef.current = Date.now();
-    cancelAnimationFrame(animationFrameRef.current);
-    animationFrameRef.current = requestAnimationFrame(atualizarVisual);
+    cancelAnimationFrame(requestRef.current);
+    requestRef.current = requestAnimationFrame(atualizarVisual);
   };
 
   const stopLoop = () => {
     isPlayingRef.current = false;
-    cancelAnimationFrame(animationFrameRef.current);
+    cancelAnimationFrame(requestRef.current);
   };
 
   const stop = () => {
@@ -79,79 +78,63 @@ function useMidiPlayer() {
   const togglePlay = async (id, url) => {
     if (!playerRef.current) return;
 
-    // Se o usuário interagiu com a mesma música
     if (playingId === id) {
       if (isPlaying) {
-        // === SOLUÇÃO DO PAUSE QUE DEIXA A NOTA TOCANDO ===
-        playerRef.current.pause();
-        
-        // Calculamos o momento exato do pause e forçamos o Player a ir para esse instante.
-        // Isso cancela fisicamente as caudas de som ativas (envia Note-Off para os osciladores)
-        const tempoExatoPausado = (Date.now() - startTimeRef.current) / 1000 + pausedTimeRef.current;
-        pausedTimeRef.current = tempoExatoPausado;
-        playerRef.current.seekTo(tempoExatoPausado);
-        
+        // PAUSE: Usamos .stop() para silenciar os osciladores instantaneamente
+        const tempoPausado = (Date.now() - startTimeRef.current) / 1000 + pausedTimeRef.current;
+        pausedTimeRef.current = tempoPausado;
+        playerRef.current.stop();
         stopLoop();
         setIsPlaying(false);
       } else {
-        // === SOLUÇÃO DO RESUME ===
+        // RESUME: Inicia e avança para o ponto salvo
         setIsPlaying(true);
         startLoop();
-        playerRef.current.resume();
+        playerRef.current.start(sequenceRef.current).catch(e => console.error(e));
+        playerRef.current.seekTo(pausedTimeRef.current);
       }
       return;
     }
 
-    // Se é uma trilha nova sendo acionada
     stop();
     setPlayingId(id);
     setIsPlaying(true);
+    pausedTimeRef.current = 0;
 
     try {
       const sequence = await mm.urlToNoteSequence(url);
       if (!sequence.notes || sequence.notes.length === 0) {
-        setIsPlaying(false);
-        setPlayingId(null);
+        stop();
         return;
       }
 
-      // Previne falha em notas sem instrumento
       sequence.notes.forEach(note => {
-        if (note.instrument === null || note.instrument === undefined) {
-          note.instrument = 0;
-        }
+        if (note.instrument === null || note.instrument === undefined) note.instrument = 0;
       });
 
       sequenceRef.current = sequence;
       setDuration(sequence.totalTime);
-      pausedTimeRef.current = 0;
 
       startLoop();
-      
       await playerRef.current.start(sequence);
       
-      // Reseta tudo automaticamente ao chegar no final natural da música
-      if (isPlayingRef.current) {
-        stop();
-      }
+      if (isPlayingRef.current) stop(); // Fim natural da música
     } catch (err) {
-      console.error("Erro ao carregar ou reproduzir MIDI:", err);
+      console.error("Erro ao reproduzir MIDI:", err);
       stop();
     }
   };
 
   const seek = (percent) => {
     if (!playerRef.current || !sequenceRef.current) return;
-
     const timeInSeconds = (percent / 100) * duration;
     
-    // Sincroniza todos os relógios (visuais e internos) para o novo ponto na música
     pausedTimeRef.current = timeInSeconds;
     startTimeRef.current = Date.now();
+    playerRef.current.seekTo(timeInSeconds);
+    
     setTempoAtual(timeInSeconds);
     setProgress(percent);
-
-    playerRef.current.seekTo(timeInSeconds);
   };
 
   return { togglePlay, stop, seek, progress, duration, isPlaying, playingId, tempoAtual };
@@ -220,19 +203,30 @@ export default function MontarTablatura() {
     return dados.some(nota => notaEstaTocando(nota, tempoAtual));
   };
 
+  // 1. Busca as partes na inicialização e já joga todas para o estado Adicionadas
   useEffect(() => {
     if (letra) {
-      setLinhasLetra(letra.split('\n').map((texto, index) => ({
-        id: `linha-${index}`, texto: texto, notas: []
-      })));
+      setLinhasLetra(letra.split('\n').map((texto, index) => ({ id: `linha-${index}`, texto: texto, notas: [] })));
     }
     if (midiSelecionado) {
       fetch(`http://127.0.0.1:8000/midi/partes/${midiSelecionado.path}`)
         .then(res => res.json())
-        .then(data => setPartesDisponiveis(data.partes))
+        .then(data => {
+          setPartesDisponiveis(data.partes);
+          setPartesAdicionadas(data.partes); // <-- Auto-add todas as partes
+        })
         .catch(err => console.error("Erro ao buscar partes:", err));
     }
   }, [letra, midiSelecionado, musicaId]);
+
+  // 2. Dispara a tradução automaticamente (e retraduz sozinho se você mudar a configuração da Gaita)
+  useEffect(() => {
+    if (partesAdicionadas.length > 0) {
+      partesAdicionadas.forEach(parte => {
+        tentarTraduzirParte(parte);
+      });
+    }
+  }, [partesAdicionadas.length, tomGaita, tipoGaita]);
 
   const atualizarNotasDoCard = (parteId, tablaturaArray) => {
     const notasComId = tablaturaArray.map((notaObj) => ({
@@ -459,16 +453,6 @@ export default function MontarTablatura() {
                 <option value="Cromática">Cromática</option>
               </select>
             </div>
-            <div>
-              <label style={labelStyle}>Selecionar Parte do MIDI</label>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <select style={inputStyle} value={parteMidi} onChange={e => setParteMidi(e.target.value)}>
-                  <option value="" disabled>Selecione a trilha...</option>
-                  {partesDisponiveis.map(parte => <option key={parte.id} value={parte.id}>{parte.nome}</option>)}
-                </select>
-                <button style={btnAdicionarParte} onClick={adicionarParteCard}>+ Add</button>
-              </div>
-            </div>
 
             {partesAdicionadas.length > 0 && (
               <div style={containerCardsMidi}>
@@ -487,15 +471,16 @@ export default function MontarTablatura() {
                 </div>
                 
                 {/* CARDS INDIVIDUAIS */}
-                {partesAdicionadas.map(parte => {
+                {partesAdicionadas.map(parte => {7
                   const oitavaInfo = dadosOitavas[parte.id];
-                  const cardExpandido = cardsExpandidos[parte.id] !== false; // Default para true
+                  const cardExpandido = cardsExpandidos[parte.id] === true; // Default para true
                   const cardEstaTocando = parteEstaTocando(parte.id);
 
                   return (
                     <div key={parte.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
                       
                       {/* CARD PRINCIPAL */}
+                      {/* CARD PRINCIPAL REDUZIDO */}
                       <div
                         onClick={() => alternarExpansaoParte(parte.id)}
                         style={{
@@ -503,7 +488,7 @@ export default function MontarTablatura() {
                           ...(cardEstaTocando ? cardParteTocandoStyle : {})
                         }}
                       >
-                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, marginRight: '15px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <span style={cardParteNome}>
                               {cardExpandido ? '▼' : '▶'} {parte.nome}
@@ -525,36 +510,16 @@ export default function MontarTablatura() {
                             )}
                           </div>
 
-                          <div
-                            style={barraFundo}
-                            onClick={e => {
-                              e.stopPropagation();
-                              handleSeekClick(e, parte.id);
-                            }}
-                          >
-                            <div style={{ ...barraProgresso, width: playingId === parte.id ? `${progress}%` : '0%' }} />
+                          {/* NOVO: Slider de Volume no lugar da barra de progresso */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px' }} onClick={e => e.stopPropagation()}>
+                            <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 'bold' }}>Volume</span>
+                            <input 
+                              type="range" 
+                              min="0" max="100" defaultValue="100" 
+                              style={{ flex: 1, height: '4px', cursor: 'pointer' }} 
+                              onChange={(e) => console.log(`Volume de ${parte.nome} ajustado para ${e.target.value}`)}
+                            />
                           </div>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                          <button
-                            style={btnPlayCard}
-                            onClick={e => {
-                              e.stopPropagation();
-                              handlePlayClick(parte.id, parte.id);
-                            }}
-                          >
-                            {playingId === parte.id && isPlaying ? '⏸' : '▶'}
-                          </button>
-                          <button
-                            style={btnRemoverCard}
-                            onClick={e => {
-                              e.stopPropagation();
-                              removerParteCard(parte.id);
-                            }}
-                          >
-                            ✖
-                          </button>
                         </div>
                       </div>
 
