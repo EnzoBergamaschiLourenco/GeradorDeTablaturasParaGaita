@@ -12,12 +12,7 @@ const midiToNoteName = (midi) => {
 
 // ================= CUSTOM HOOK =================
 function useMidiPlayer() {
-  // ════════════════════════════════════════
-  // FATOR DE AMPLIFICAÇÃO GERAL DE VOLUME
-  // (aumente se o som ainda estiver baixo)
-  // ════════════════════════════════════════
-  const VOLUME_BOOST = 10;   // 10x = +20dB
-
+  const VOLUME_BOOST = 10;
   const audioCtxRef = useRef(null);
   const playerRef = useRef(null);
   const isPlayingRef = useRef(false);
@@ -30,7 +25,6 @@ function useMidiPlayer() {
   const currentPartesIdsRef = useRef([]);
   const currentMidiPathRef = useRef('');
   const sequenceRef = useRef(null);
-
   const debounceTimerRef = useRef(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -73,7 +67,7 @@ function useMidiPlayer() {
         combinedNotes.push({
           ...note,
           instrument: instrumentNum,
-          velocity: Math.min(1, Math.max(0, volume))   // volume de 0 a 1
+          velocity: Math.min(1, Math.max(0, volume))
         });
       });
       if (seq.totalTime > maxTime) maxTime = seq.totalTime;
@@ -229,9 +223,7 @@ function useMidiPlayer() {
       try {
         playerRef.current.seekTo(targetTime);
         startTimeRef.current = performance.now() - targetTime * 1000;
-      } catch (e) {
-        console.error('Erro no seek ao vivo:', e);
-      }
+      } catch (e) {}
     }
 
     pausedTimeRef.current = targetTime;
@@ -239,7 +231,6 @@ function useMidiPlayer() {
     setProgress(percent);
   };
 
-  // ✅ APLICA GANHO MULTIPLICADO USANDO O MÉTODO CORRETO (Player.setGain)
   const applyAllGains = () => {
     if (!playerRef.current) return;
     Object.entries(currentVolumesRef.current).forEach(([parteId, vol]) => {
@@ -250,7 +241,6 @@ function useMidiPlayer() {
     });
   };
 
-  // Feedback imediato (arrastar o slider)
   const applyImmediateGain = (parteId, normalized) => {
     if (!playerRef.current) return;
     const instrumentNum = extractInstrumentNumber(parteId);
@@ -259,10 +249,8 @@ function useMidiPlayer() {
     } catch (e) {}
   };
 
-  // Recarga completa da sequência (debounce)
   const applyVolumeChangeWithReload = async (parteId, normalized) => {
     if (currentPartesIdsRef.current.length === 0 || !currentMidiPathRef.current) return;
-
     const wasPlaying = isPlayingRef.current;
     const currentTime = wasPlaying ? tempoAtual : pausedTimeRef.current;
 
@@ -285,7 +273,6 @@ function useMidiPlayer() {
       newPlayer.start(newSeq, undefined, currentTime)
         .then(() => applyAllGains())
         .catch(err => {
-          console.error('volume: erro ao retomar', err);
           isPlayingRef.current = false;
           setIsPlaying(false);
           playerRef.current = null;
@@ -300,16 +287,12 @@ function useMidiPlayer() {
     }
   };
 
-  // Slider com debounce (recarga pesada a cada 500ms de inatividade)
   const setVolume = (parteId, vol) => {
     const normalized = Math.min(1, Math.max(0, vol));
     setVolumesState(prev => ({ ...prev, [parteId]: normalized }));
     currentVolumesRef.current[parteId] = normalized;
-
-    // Aplica ganho IMEDIATAMENTE (feedback instantâneo, boost incluso)
     applyImmediateGain(parteId, normalized);
 
-    // Agenda a recarga completa para 500ms depois da última alteração
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
       debounceTimerRef.current = null;
@@ -322,51 +305,33 @@ function useMidiPlayer() {
       currentVolumesRef.current[id] = volumesObj[id] ?? 1;
     });
 
-    if (!midiPath) {
-      console.error('MIDI não selecionado');
-      return;
-    }
-    if (!Array.isArray(partesIds) || partesIds.length === 0) {
-      console.error('Nenhuma parte disponível');
-      return;
-    }
+    if (!midiPath) return;
+    if (!Array.isArray(partesIds) || partesIds.length === 0) return;
 
     if (playingIdRef.current === 'ALL' && isPlayingRef.current) {
       pauseAll();
       return;
     }
-
     if (playingIdRef.current === 'ALL' && !isPlayingRef.current && playerRef.current) {
       resumeAll();
       return;
     }
-
     await startAll(partesIds, midiPath, 0);
   };
 
   useEffect(() => {
     return () => {
       stopAll();
-      if (audioCtxRef.current) {
-        audioCtxRef.current.close();
-      }
+      if (audioCtxRef.current) audioCtxRef.current.close();
     };
   }, []);
 
   return {
-    togglePlayAll,
-    stop: stopAll,
-    seek,
-    setVolumes: setVolume,
-    alterarVolume: setVolume,
-    progress,
-    duration,
-    isPlaying,
-    playingId,
-    tempoAtual,
-    volumes,
+    togglePlayAll, stop, seek, setVolumes: setVolume, alterarVolume: setVolume,
+    progress, duration, isPlaying, playingId, tempoAtual, volumes,
   };
 }
+
 // ================= COMPONENTE PRINCIPAL =================
 export default function MontarTablatura() {
   const location = useLocation();
@@ -384,9 +349,12 @@ export default function MontarTablatura() {
 
   const [partesDisponiveis, setPartesDisponiveis] = useState([]);
   const [partesAdicionadas, setPartesAdicionadas] = useState([]);
-
   const [notasPorParte, setNotasPorParte] = useState({});
   const [dadosOitavas, setDadosOitavas] = useState({});
+
+  // === ESTADOS DE FILA PARA TRADUÇÃO SEQUENCIAL ===
+  const [filaTraducao, setFilaTraducao] = useState([]);
+  const [isTraduzindo, setIsTraduzindo] = useState(false);
 
   const [modalAjusteAberto, setModalAjusteAberto] = useState(false);
   const [notasPendentes, setNotasPendentes] = useState([]);
@@ -399,27 +367,13 @@ export default function MontarTablatura() {
 
   const [cardsExpandidos, setCardsExpandidos] = useState({});
   const alternarExpansaoParte = (parteId) => {
-    setCardsExpandidos(prev => ({
-      ...prev,
-      [parteId]: !prev[parteId]
-    }));
+    setCardsExpandidos(prev => ({ ...prev, [parteId]: !prev[parteId] }));
   };
 
   const {
-    togglePlayAll,
-    stop,
-    seek,
-    progress,
-    duration,
-    isPlaying,
-    playingId,
-    tempoAtual,
-    alterarVolume,
-    setVolumes,
-    volumes = {}
+    togglePlayAll, stop, seek, progress, duration, isPlaying, playingId, tempoAtual, alterarVolume, volumes = {}
   } = useMidiPlayer();
 
-  // Detecção de nota tocando
   const notaEstaTocando = (nota, tempo) => {
     if (!nota || nota.inicio === undefined || nota.fim === undefined) return false;
     return tempo >= nota.inicio && tempo < nota.fim;
@@ -431,7 +385,14 @@ export default function MontarTablatura() {
     return dados.some(nota => notaEstaTocando(nota, tempoAtual));
   };
 
-  // Carrega partes disponíveis
+  // Coleta todas as notas que já estão posicionadas em linhas da letra
+  const notasAlocadasSet = new Set();
+  linhasLetra.forEach(linha => {
+    linha.notas.forEach(nota => {
+      if (nota.id) notasAlocadasSet.add(nota.id);
+    });
+  });
+
   useEffect(() => {
     if (letra) {
       setLinhasLetra(letra.split('\n').map((texto, index) => ({ id: `linha-${index}`, texto: texto, notas: [] })));
@@ -442,19 +403,18 @@ export default function MontarTablatura() {
         .then(data => {
           setPartesDisponiveis(data.partes);
           setPartesAdicionadas(data.partes);
+          setFilaTraducao([...data.partes]);
         })
         .catch(err => console.error("Erro ao buscar partes:", err));
     }
   }, [letra, midiSelecionado, musicaId]);
 
-  // Dispara tradução quando partes mudam
   useEffect(() => {
-    if (partesAdicionadas.length > 0) {
-      partesAdicionadas.forEach(parte => {
-        tentarTraduzirParte(parte);
-      });
+    if (filaTraducao.length > 0 && !modalAjusteAberto && !isTraduzindo) {
+      const parteAtual = filaTraducao[0];
+      traduzirParteFila(parteAtual);
     }
-  }, [partesAdicionadas.length, tomGaita, tipoGaita]);
+  }, [filaTraducao, modalAjusteAberto, isTraduzindo]);
 
   const atualizarNotasDoCard = (parteId, tablaturaArray) => {
     const notasComId = tablaturaArray.map((notaObj) => ({
@@ -466,7 +426,8 @@ export default function MontarTablatura() {
     setNotasPorParte(prev => ({ ...prev, [parteId]: notasComId }));
   };
 
-  const tentarTraduzirParte = async (parteEncontrada, overrides = null) => {
+  const traduzirParteFila = async (parteEncontrada, overrides = null) => {
+    setIsTraduzindo(true);
     try {
       const response = await fetch(`http://127.0.0.1:8000/midi/traduzir`, {
         method: 'POST',
@@ -493,6 +454,7 @@ export default function MontarTablatura() {
         data.detalhes.forEach(item => { mapInicial[item.nota_midi_original] = item.sugestao_comando; });
         setMapeamentoUsuario(mapInicial);
         setModalAjusteAberto(true);
+        setIsTraduzindo(false); 
       }
       else if (Array.isArray(data) && data.length > 0) {
         setModalAjusteAberto(false);
@@ -501,22 +463,35 @@ export default function MontarTablatura() {
           [parteEncontrada.id]: { posicoes: data, selecionada: 0 }
         }));
         atualizarNotasDoCard(parteEncontrada.id, data[0].tablatura);
+        
+        setFilaTraducao(prev => prev.slice(1));
+        setIsTraduzindo(false);
       }
       else {
-        console.error(`Erro na conversão.`);
+        setFilaTraducao(prev => prev.slice(1));
+        setIsTraduzindo(false);
       }
     } catch (err) {
       console.error("Falha de conexão com a API na tradução.");
+      setFilaTraducao(prev => prev.slice(1));
+      setIsTraduzindo(false);
     }
   };
 
-  const confirmarAjustes = () => {
-    tentarTraduzirParte(parteEmAjuste, mapeamentoUsuario);
-  };
+  const confirmarAjustes = () => traduzirParteFila(parteEmAjuste, mapeamentoUsuario);
 
   const cancelarAjustes = () => {
     setModalAjusteAberto(false);
     setParteEmAjuste(null);
+    setFilaTraducao(prev => prev.slice(1)); 
+  };
+
+  const recarregarTraducoes = () => {
+    setIsTraduzindo(false);
+    setModalAjusteAberto(false);
+    setNotasPorParte({});
+    setDadosOitavas({});
+    setFilaTraducao([...partesAdicionadas]);
   };
 
   const handleMudancaOitava = (parteId, novaOitavaIndex) => {
@@ -537,35 +512,31 @@ export default function MontarTablatura() {
   // ================= DRAG AND DROP =================
   const handleDragStart = (e, nota) => {
     e.dataTransfer.setData('notaId', nota.id);
-    e.dataTransfer.setData('parteOrigem', nota.parteOrigem);
   };
   const handleDragOver = (e) => { e.preventDefault(); };
 
   const handleDrop = (e, columnLinhaIndex) => {
     e.preventDefault();
     const notaId = e.dataTransfer.getData('notaId');
-    const parteOrigem = e.dataTransfer.getData('parteOrigem');
 
     let notaEncontrada = null;
-    if (parteOrigem && notasPorParte[parteOrigem]) {
-      notaEncontrada = notasPorParte[parteOrigem].find(n => n.id === notaId);
-    } else {
-      Object.keys(notasPorParte).forEach(chave => {
-        const achou = notasPorParte[chave].find(n => n.id === notaId);
-        if (achou) notaEncontrada = achou;
-      });
-    }
+    Object.keys(notasPorParte).forEach(chave => {
+      const achou = notasPorParte[chave].find(n => n.id === notaId);
+      if (achou) notaEncontrada = achou;
+    });
 
     if (notaEncontrada) {
-      const origemEfetiva = notaEncontrada.parteOrigem;
-      if (origemEfetiva && notasPorParte[origemEfetiva]) {
-        setNotasPorParte(prev => ({
-          ...prev, [origemEfetiva]: prev[origemEfetiva].filter(n => n.id !== notaId)
-        }));
-      }
+      // Bloqueia adicionar a mesma nota duas vezes
+      const jaAlocada = notasAlocadasSet.has(notaId);
+      if (jaAlocada) return;
+
+      // Adiciona na linha (coluna da direita) APENAS, sem mutar o array diretamente
       setLinhasLetra(prev => {
         const novasLinhas = [...prev];
-        novasLinhas[columnLinhaIndex].notas.push(notaEncontrada);
+        novasLinhas[columnLinhaIndex] = {
+          ...novasLinhas[columnLinhaIndex],
+          notas: [...novasLinhas[columnLinhaIndex].notas, notaEncontrada]
+        };
         return novasLinhas;
       });
     }
@@ -574,15 +545,10 @@ export default function MontarTablatura() {
   const removerNotaDaLinha = (linhaIndex, notaId) => {
     setLinhasLetra(prev => {
       const novasLinhas = [...prev];
-      const notaRemovida = novasLinhas[linhaIndex].notas.find(n => n.id === notaId);
-      novasLinhas[linhaIndex].notas = novasLinhas[linhaIndex].notas.filter(n => n.id !== notaId);
-
-      if (notaRemovida && notaRemovida.parteOrigem && notaRemovida.parteOrigem !== 'manual') {
-        setNotasPorParte(disponiveis => ({
-          ...disponiveis,
-          [notaRemovida.parteOrigem]: [...(disponiveis[notaRemovida.parteOrigem] || []), notaRemovida]
-        }));
-      }
+      novasLinhas[linhaIndex] = {
+        ...novasLinhas[linhaIndex],
+        notas: novasLinhas[linhaIndex].notas.filter(n => n.id !== notaId)
+      };
       return novasLinhas;
     });
   };
@@ -592,7 +558,10 @@ export default function MontarTablatura() {
       const novaNota = { id: `nota-manual-${Date.now()}`, valor: e.target.value.trim(), parteOrigem: 'manual' };
       setLinhasLetra(prev => {
         const novasLinhas = [...prev];
-        novasLinhas[linhaIndex].notas.push(novaNota);
+        novasLinhas[linhaIndex] = {
+          ...novasLinhas[linhaIndex],
+          notas: [...novasLinhas[linhaIndex].notas, novaNota]
+        };
         return novasLinhas;
       });
       e.target.value = '';
@@ -634,8 +603,19 @@ export default function MontarTablatura() {
       <div style={contentWrapper}>
 
         {/* COLUNA ESQUERDA */}
-        <div style={columnBox}>
-          <h3 style={sectionTitle}>Configurações da Gaita</h3>
+        <div style={{ ...columnBox, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+            <h3 style={{ color: '#007bff', fontSize: '18px', fontWeight: 'bold', margin: 0 }}>
+              Configurações da Gaita
+            </h3>
+            <button
+              onClick={recarregarTraducoes}
+              style={btnRecarregar}
+              title="Recarregar e Traduzir Novamente"
+            >
+              ↻
+            </button>
+          </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '25px' }}>
             <div>
@@ -688,7 +668,6 @@ export default function MontarTablatura() {
 
                   return (
                     <div key={parte.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-
                       <div
                         onClick={() => alternarExpansaoParte(parte.id)}
                         style={{
@@ -743,19 +722,32 @@ export default function MontarTablatura() {
                       {cardExpandido && (
                         <div style={notasCardInternoContainer}>
                           {!notasPorParte[parte.id] ? (
-                            <span style={{ color: '#a0aec0', fontSize: '12px', fontStyle: 'italic' }}>Processando notas...</span>
+                            <span style={{ color: '#a0aec0', fontSize: '12px', fontStyle: 'italic' }}>Aguardando tradução...</span>
                           ) : (
                             notasPorParte[parte.id].map(nota => {
                               const estaTocando = notaEstaTocando(nota, tempoAtual);
+                              const estaAlocada = notasAlocadasSet.has(nota.id);
+                              
+                              let estiloAplicado = { ...cardNota };
+                              
+                              if (estaAlocada) {
+                                estiloAplicado = { ...estiloAplicado, ...cardNotaAlocadaTransparente };
+                              }
+                              if (estaTocando) {
+                                estiloAplicado = { 
+                                  ...estiloAplicado, 
+                                  ...(estaAlocada ? cardNotaTocandoAlocadaStyle : cardNotaTocandoStyle) 
+                                };
+                              }
+
                               return (
                                 <div
                                   key={nota.id}
-                                  draggable
-                                  onDragStart={(e) => handleDragStart(e, nota)}
-                                  style={{
-                                    ...cardNota,
-                                    ...(estaTocando ? cardNotaTocandoStyle : {})
+                                  draggable={!estaAlocada}
+                                  onDragStart={(e) => {
+                                    if (!estaAlocada) handleDragStart(e, nota);
                                   }}
+                                  style={estiloAplicado}
                                 >
                                   {nota.valor}
                                 </div>
@@ -772,30 +764,49 @@ export default function MontarTablatura() {
           </div>
         </div>
 
-        {/* COLUNA DIREITA */}
-        <div style={{ ...columnBox, position: 'relative' }}>
-          <div style={{ marginBottom: '20px', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px' }}>
+        {/* COLUNA DIREITA (Sticky com Scroll Interno) */}
+        <div style={{ 
+          ...columnBox, 
+          flex: 1.2, 
+          position: 'sticky', 
+          top: '30px', 
+          height: 'calc(100vh - 60px)', // Faz a coluna ter o tamanho exato da tela disponível
+          display: 'flex', 
+          flexDirection: 'column', 
+          paddingBottom: '25px' 
+        }}>
+          {/* Header fixo da coluna direita */}
+          <div style={{ marginBottom: '20px', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px', flexShrink: 0 }}>
             <h2 style={{ color: '#333', margin: 0, fontSize: '24px' }}>{nome}</h2>
             <span style={{ color: '#666' }}>{autor}</span>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', paddingBottom: '80px' }}>
-            {linhasLetra.map((linha, index) => (
-              <div key={linha.id} style={linhaContainer}>
-                <div style={zonaDrop} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, index)}>
-                  {linha.notas.length === 0 && <span style={{ color: '#cbd5e1', fontSize: '12px' }}>Solte notas aqui...</span>}
-                  {linha.notas.map(nota => (
-                    <div key={nota.id} style={cardNotaAlocada} onClick={() => removerNotaDaLinha(index, nota.id)} title="Clique para remover">
-                      {nota.valor}
-                    </div>
-                  ))}
-                  <input type="text" placeholder="+" style={inputNotaManual} onKeyDown={(e) => handleAdicionarNotaManual(e, index)} />
+          {/* Área scrollável das letras (independente da página externa) */}
+          <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', paddingBottom: '30px' }}>
+              {linhasLetra.map((linha, index) => (
+                <div key={linha.id} style={linhaContainer}>
+                  <div style={zonaDrop} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, index)}>
+                    {linha.notas.length === 0 && <span style={{ color: '#cbd5e1', fontSize: '12px' }}>Solte notas aqui...</span>}
+                    {linha.notas.map(nota => (
+                      <div key={nota.id} style={cardNotaAlocada} onClick={() => removerNotaDaLinha(index, nota.id)} title="Clique para remover">
+                        {nota.valor}
+                      </div>
+                    ))}
+                    <input type="text" placeholder="+" style={inputNotaManual} onKeyDown={(e) => handleAdicionarNotaManual(e, index)} />
+                  </div>
+                  <div style={textoLetra}>{linha.texto || <span style={{ color: '#cbd5e1', fontStyle: 'italic' }}>[Linha vazia]</span>}</div>
                 </div>
-                <div style={textoLetra}>{linha.texto || <span style={{ color: '#cbd5e1', fontStyle: 'italic' }}>[Linha vazia]</span>}</div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-          <button style={btnContinuar} onClick={() => setMostrarPreview(true)}>Continuar ➔</button>
+
+          {/* Botão Fixo no fundo da coluna da direita */}
+          <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end', paddingTop: '15px', backgroundColor: 'white' }}>
+            <button style={{...btnContinuar, position: 'relative', bottom: 'auto', right: 'auto'}} onClick={() => setMostrarPreview(true)}>
+              Continuar ➔
+            </button>
+          </div>
         </div>
       </div>
 
@@ -835,7 +846,7 @@ export default function MontarTablatura() {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button onClick={cancelarAjustes} style={btnCancelarModal}>Cancelar e Remover</button>
+              <button onClick={cancelarAjustes} style={btnCancelarModal}>Cancelar e Pular</button>
               <button onClick={confirmarAjustes} style={btnConfirmarModal}>Confirmar Adaptações</button>
             </div>
           </div>
@@ -846,11 +857,11 @@ export default function MontarTablatura() {
 }
 
 /* ================= STYLES ================= */
-const pageStyle = { position: 'absolute', top: 0, left: 0, width: '100vw', minHeight: '100vh', backgroundColor: '#f4f7fb', fontFamily: 'Arial, sans-serif', padding: '40px 20px', boxSizing: 'border-box', overflowX: 'hidden' };
-const contentWrapper = { display: 'flex', gap: '30px', width: '100%', maxWidth: '1200px', margin: '0 auto', alignItems: 'flex-start' };
-const columnBox = { flex: 1, backgroundColor: 'white', padding: '35px', borderRadius: '24px', boxShadow: '0 15px 40px rgba(0,0,0,0.08)', boxSizing: 'border-box' };
+// AQUI: Foram removidos absolute, overflowX e posicionamentos que quebravam o sticky
+const pageStyle = { width: '100%', minHeight: '100vh', backgroundColor: '#f4f7fb', fontFamily: 'Arial, sans-serif', padding: '30px 20px', boxSizing: 'border-box' };
+const contentWrapper = { display: 'flex', gap: '30px', width: '100%', maxWidth: '1250px', margin: '0 auto', alignItems: 'flex-start' };
+const columnBox = { backgroundColor: 'white', padding: '30px', borderRadius: '24px', boxShadow: '0 15px 40px rgba(0,0,0,0.08)', boxSizing: 'border-box' };
 const mainCard = { margin: '0 auto', backgroundColor: 'white', padding: '45px', borderRadius: '24px', boxShadow: '0 15px 40px rgba(0,0,0,0.08)' };
-const sectionTitle = { color: '#007bff', fontSize: '18px', marginBottom: '20px', fontWeight: 'bold' };
 const labelStyle = { fontSize: '13px', color: '#666', fontWeight: 'bold', marginBottom: '6px', display: 'block' };
 const inputStyle = { width: '100%', padding: '12px 15px', borderRadius: '10px', border: '1px solid #d8e3f0', fontSize: '15px', outline: 'none', backgroundColor: '#fff', color: '#333', cursor: 'pointer' };
 
@@ -859,22 +870,19 @@ const selectOitavaStyle = { fontSize: '11px', padding: '4px', borderRadius: '6px
 const btnPrimary = { padding: '14px 24px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,123,255,0.2)' };
 const btnSecondary = { padding: '14px 24px', backgroundColor: '#e2e8f0', color: '#666', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' };
 
-const cardNota = { padding: '6px 12px', backgroundColor: '#007bff', color: 'white', fontWeight: 'bold', borderRadius: '8px', cursor: 'grab', userSelect: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '13px', transition: 'box-shadow 0.05s ease, transform 0.05s ease, background-color 0.05s ease' };
+const cardNota = { padding: '6px 12px', backgroundColor: '#007bff', color: 'white', fontWeight: 'bold', borderRadius: '8px', cursor: 'grab', userSelect: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '13px', transition: 'box-shadow 0.05s ease, transform 0.05s ease, background-color 0.05s ease, opacity 0.1s ease' };
 const linhaContainer = { display: 'flex', flexDirection: 'column', gap: '5px' };
 const zonaDrop = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', minHeight: '38px', padding: '6px 10px', backgroundColor: '#fff', border: '2px dashed #d8e3f0', borderRadius: '10px', transition: 'background-color 0.2s' };
 const cardNotaAlocada = { padding: '6px 12px', backgroundColor: '#1a73e8', color: 'white', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '14px' };
 const inputNotaManual = { width: '40px', padding: '6px', borderRadius: '6px', border: '1px solid #d8e3f0', textAlign: 'center', outline: 'none', fontWeight: 'bold', color: '#333' };
 const textoLetra = { fontSize: '16px', color: '#333', paddingLeft: '5px', whiteSpace: 'pre-wrap' };
-const btnContinuar = { position: 'absolute', bottom: '25px', right: '35px', padding: '14px 28px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer', boxShadow: '0 6px 18px rgba(0,123,255,0.3)' };
+const btnContinuar = { padding: '14px 28px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer', boxShadow: '0 6px 18px rgba(0,123,255,0.3)' };
 
-const btnAdicionarParte = { padding: '0 20px', backgroundColor: '#238636', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 10px rgba(35,134,54,0.15)', fontSize: '14px' };
 const containerCardsMidi = { backgroundColor: '#f8fafc', padding: '15px', borderRadius: '14px', border: '1px solid #e2e8f0', marginTop: '10px' };
 
 const cardParteStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff', padding: '10px 14px', borderRadius: '8px', borderWidth: '2px', borderStyle: 'solid', borderColor: '#cbd5e1', marginBottom: '2px', cursor: 'pointer', transition: 'box-shadow 0.08s ease, border-color 0.08s ease, transform 0.08s ease' };
 const cardParteNome = { fontWeight: 'bold', fontSize: '14px', color: '#334155' };
 const btnPlayAll = { padding: '6px 12px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,123,255,0.2)' };
-const btnPlayCard = { width: '28px', height: '28px', backgroundColor: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' };
-const btnRemoverCard = { width: '28px', height: '28px', backgroundColor: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' };
 
 const notasCardInternoContainer = { display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '10px', backgroundColor: '#edf2f7', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '14px' };
 const barraFundo = { width: '100%', height: '8px', backgroundColor: '#e2e8f0', borderRadius: '4px', marginTop: '8px', cursor: 'pointer', overflow: 'hidden', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.1)' };
@@ -885,7 +893,15 @@ const modalContent = { backgroundColor: 'white', padding: '30px', borderRadius: 
 const btnCancelarModal = { padding: '10px 18px', backgroundColor: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' };
 const btnConfirmarModal = { padding: '10px 18px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 4px 10px rgba(0,123,255,0.2)' };
 
-// Efeitos de destaque
+const btnRecarregar = { display: 'flex', justifyContent: 'center', alignItems: 'center', width: '32px', height: '32px', backgroundColor: '#e2e8f0', color: '#007bff', border: 'none', borderRadius: '8px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', transition: 'background-color 0.2s', paddingBottom: '2px' };
+
+// Novos estilos para os estados de alocação e reprodução
+const cardNotaAlocadaTransparente = {
+  opacity: 0.4,
+  boxShadow: 'none',
+  cursor: 'default' // Indica que não pode arrastar
+};
+
 const cardParteTocandoStyle = {
   borderColor: '#38bdf8',
   boxShadow: '0 0 8px rgba(14, 165, 233, 0.8), 0 0 20px rgba(14, 165, 233, 0.4)',
@@ -897,4 +913,12 @@ const cardNotaTocandoStyle = {
   color: '#422006',
   transform: 'scale(1.08)',
   boxShadow: '0 0 8px rgba(250, 204, 21, 0.9), 0 0 18px rgba(250, 204, 21, 0.5)'
+};
+
+const cardNotaTocandoAlocadaStyle = {
+  backgroundColor: '#facc15',
+  color: '#422006',
+  opacity: 0.6,
+  transform: 'scale(1.05)',
+  boxShadow: '0 0 5px rgba(250, 204, 21, 0.4)'
 };
