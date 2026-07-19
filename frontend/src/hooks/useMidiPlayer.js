@@ -26,7 +26,10 @@ export function useMidiPlayer() {
   const sequenceRef = useRef(null);
   const debounceTimerRef = useRef(null);
   const baseTempoRef = useRef(120);
-  
+  const animationFrameRef = useRef(null);
+  const playbackClockStartRef = useRef(0);
+  const playbackClockSequenceStartRef = useRef(0);
+
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playingId, setPlayingId] = useState(null);
@@ -95,12 +98,36 @@ export function useMidiPlayer() {
       throw new Error('Nenhuma parte possui notas.');
     }
 
+    // Nota fantasma utilizada exclusivamente para sincronizar
+    // o callback run() imediatamente no início da reprodução.
+    const ghostNote = {
+      pitch: 0,
+      startTime: 0,
+      endTime: 0.001,
+      velocity: 0,
+      instrument: 0,
+      isDrum: false,
+      isGhost: true,
+    };
+
     let combinedSequence = {
       ...firstSeq,
-      notes: combinedNotes,
+      // A nota fantasma vem primeiro e não produz som,
+      // pois sua velocidade é 0.
+      notes: [
+        ghostNote,
+        ...combinedNotes,
+      ],
+      // A nota fantasma não altera a duração real do MIDI.
       totalTime: maxTime,
-      tempos: (firstSeq.tempos && firstSeq.tempos.length > 0) ? firstSeq.tempos : [{ time: 0, qpm: 120 }],
-      timeSignatures: firstSeq.timeSignatures || [{ time: 0, numerator: 4, denominator: 4 }],
+      tempos: (
+        firstSeq.tempos &&
+        firstSeq.tempos.length > 0
+      )
+        ? firstSeq.tempos
+        : [{ time: 0, qpm: 120 }],
+      timeSignatures: firstSeq.timeSignatures ||
+        [{ time: 0, numerator: 4, denominator: 4 }],
     };
 
     combinedSequence = sanitizeSequence(combinedSequence);
@@ -113,25 +140,89 @@ export function useMidiPlayer() {
     return combinedSequence;
   };
 
+  const stopPlaybackClock = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+  };
+
+  const updatePlaybackClock = () => {
+    if (!isPlayingRef.current || !audioCtxRef.current) {
+      return;
+    }
+
+    const elapsedAudioTime =
+      audioCtxRef.current.currentTime -
+      playbackClockStartRef.current;
+
+    const currentTime =
+      playbackClockSequenceStartRef.current +
+      (elapsedAudioTime * playbackSpeed);
+
+    const clampedTime = Math.min(
+      currentTime,
+      totalDurationRef.current
+    );
+
+    setTempoAtual(clampedTime);
+
+    if (totalDurationRef.current > 0) {
+      setProgress(
+        Math.min(
+          100,
+          Math.max(
+            0,
+            (clampedTime / totalDurationRef.current) * 100
+          )
+        )
+      );
+    }
+
+    animationFrameRef.current =
+      requestAnimationFrame(updatePlaybackClock);
+  };
+
+  const startPlaybackClock = (sequenceStartTime = 0) => {
+    stopPlaybackClock();
+
+    playbackClockStartRef.current =
+      audioCtxRef.current.currentTime;
+
+    playbackClockSequenceStartRef.current =
+      sequenceStartTime;
+
+    animationFrameRef.current =
+      requestAnimationFrame(updatePlaybackClock);
+  };
   // ────────────────────────────
   //  CRIAÇÃO DO PLAYER (CORRIGIDA)
   // ────────────────────────────
   const setupPlayer = () => {
     getAudioContext();
     if (playerRef.current) {
-      try { playerRef.current.stop(); } catch {}
+      try { playerRef.current.stop(); } catch { }
     }
-    
+
     // O SEGREDO ESTÁ AQUI: O callback 'run' fornece o tempo perfeitamente sincronizado.
     // 'false' significa que o Magenta não vai tentar gerenciar o contexto de áudio sozinho.
     playerRef.current = new mm.Player(false, {
       run: (note) => {
-        // Toda vez que uma nota toca, o tempo atual é atualizado.
-        // Como o player muda a velocidade sozinho, este startTime sempre bate com a nota visual.
-        if (note && typeof note.startTime === 'number') {
+        if (
+          note &&
+          typeof note.startTime === 'number'
+        ) {
           setTempoAtual(note.startTime);
           if (totalDurationRef.current > 0) {
-            setProgress((note.startTime / totalDurationRef.current) * 100);
+            setProgress(
+              Math.min(
+                100,
+                Math.max(
+                  0,
+                  (note.startTime / totalDurationRef.current) * 100
+                )
+              )
+            );
           }
         }
       },
@@ -150,8 +241,9 @@ export function useMidiPlayer() {
   };
 
   const stopAll = () => {
+    stopPlaybackClock();
     if (playerRef.current) {
-      try { playerRef.current.stop(); } catch {}
+      try { playerRef.current.stop(); } catch { }
       playerRef.current = null;
     }
     isPlayingRef.current = false;
@@ -168,6 +260,7 @@ export function useMidiPlayer() {
   };
 
   const pauseAll = () => {
+    stopPlaybackClock();
     if (playerRef.current) {
       try {
         // Salvamos o último tempo atualizado pelo 'run'
@@ -202,6 +295,7 @@ export function useMidiPlayer() {
     playingIdRef.current = 'ALL';
     setIsPlaying(true);
     setPlayingId('ALL');
+    startPlaybackClock(seekTime);
   };
 
   const startAll = async (partesIds, midiPath, startTime = 0) => {
@@ -222,6 +316,7 @@ export function useMidiPlayer() {
       setIsPlaying(true);
       setPlayingId('ALL');
       pausedTimeRef.current = startTime;
+      startPlaybackClock(startTime);
     } catch (err) {
       console.error('Erro ao iniciar reprodução:', err);
       stopAll();
@@ -243,7 +338,7 @@ export function useMidiPlayer() {
     } else {
       pausedTimeRef.current = targetTime;
     }
-    
+
     setTempoAtual(targetTime);
     setProgress(percent);
   };
@@ -251,7 +346,7 @@ export function useMidiPlayer() {
   const recreatePlayerAtTime = async (targetTime, shouldPlay) => {
     if (currentPartesIdsRef.current.length === 0 || !currentMidiPathRef.current) return;
     if (playerRef.current) {
-      try { playerRef.current.stop(); } catch {}
+      try { playerRef.current.stop(); } catch { }
       playerRef.current = null;
     }
     const newSeq = await loadCombinedSequence(

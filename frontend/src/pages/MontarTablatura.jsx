@@ -3,9 +3,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import * as mm from '@magenta/music';
 import * as s from '../styles/MontarTablaturaStyles';
 import { useMidiPlayer, midiToNoteName } from '../hooks/useMidiPlayer';
+import { supabase } from '../supabaseClient';
 
 // ================= COMPONENTE PRINCIPAL =================
 export default function MontarTablatura() {
+
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -40,6 +42,67 @@ export default function MontarTablatura() {
 
   const [linhasLetra, setLinhasLetra] = useState([]);
   const [mostrarPreview, setMostrarPreview] = useState(false);
+
+  const [user, setUser] = useState(null);
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => setUser(user));
+  }, []);
+  const [textoTablatura, setTextoTablatura] = useState('');
+  // Geração do texto da tablatura combinando comandos + letra
+  useEffect(() => {
+    if (mostrarPreview) {
+      const texto = linhasLetra
+        .map(linha => {
+          const comandos = linha.notas.map(n => n.valor).join(' ');
+          const letra = linha.texto || '';   // mantém vazia se for linha vazia
+          // Se não houver comandos nem letra, retorna string vazia (evita linhas em branco)
+          if (!comandos && !letra) return '';
+          return `${comandos}\n${letra}`;
+        })
+        .filter(line => line !== '')   // remove totalmente vazias
+        .join('\n');
+      setTextoTablatura(texto);
+    }
+  }, [mostrarPreview, linhasLetra]);
+  const handleSaveTablatura = async () => {
+    if (!user) {
+      alert("Usuário não autenticado.");
+      return;
+    }
+
+    // Buscar o ID do layout da gaita (tom + tipo)
+    const { data: layout, error: layoutError } = await supabase
+      .from('layouts_gaita')
+      .select('id')
+      .eq('tipo', tipoGaita)
+      .eq('tom', tomGaita)
+      .single();
+
+    if (layoutError || !layout) {
+      alert("Erro ao encontrar o layout da gaita. Verifique se o tom e tipo são válidos.");
+      return;
+    }
+
+    const dataAtual = new Date().toISOString().split('T')[0];
+
+    const { error: insertError } = await supabase
+      .from('tablaturas')
+      .insert({
+        tablatura: textoTablatura,
+        data: dataAtual,
+        usuario_id: user.id,
+        midi_id: midiSelecionado?.id,
+        musica_id: musicaId,
+        gaita_ID: layout.id
+      });
+
+    if (insertError) {
+      console.error(insertError);
+      alert("Erro ao salvar tablatura.");
+    } else {
+      navigate('/menu');
+    }
+  };
 
   const [cardsExpandidos, setCardsExpandidos] = useState({});
   const alternarExpansaoParte = (parteId) => {
@@ -304,22 +367,46 @@ export default function MontarTablatura() {
           <h2 style={{ color: '#007bff', marginBottom: 5 }}>{nome}</h2>
           <p style={{ color: '#666', marginBottom: 30 }}>{autor}</p>
 
-          <div style={{ backgroundColor: '#f8fafc', padding: '30px', borderRadius: '14px', border: '1px solid #e2e8f0', textAlign: 'left', fontFamily: 'monospace', fontSize: '16px' }}>
-            {linhasLetra.map((linha, index) => (
-              <div key={index} style={{ marginBottom: '20px' }}>
-                <div style={{ fontWeight: 'bold', color: '#007bff', letterSpacing: '4px', marginBottom: '4px', minHeight: '20px' }}>
-                  {linha.notas.map(n => n.valor).join('   ')}
-                </div>
-                <div style={{ color: '#333' }}>
-                  {linha.texto}
-                </div>
-              </div>
-            ))}
+          <div style={{ display: 'flex', gap: '15px', marginBottom: 20, justifyContent: 'center' }}>
+            <div>
+              <label style={s.labelStyle}>Tom da Gaita</label>
+              <input
+                value={tomGaita}
+                onChange={e => setTomGaita(e.target.value)}
+                style={s.inputStyle}
+              />
+            </div>
+            <div>
+              <label style={s.labelStyle}>Tipo de Gaita</label>
+              <input
+                value={tipoGaita}
+                onChange={e => setTipoGaita(e.target.value)}
+                style={s.inputStyle}
+              />
+            </div>
           </div>
 
+          <textarea
+            value={textoTablatura}
+            onChange={e => setTextoTablatura(e.target.value)}
+            style={{
+              width: '100%',
+              height: '300px',
+              fontFamily: 'monospace',
+              fontSize: '16px',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid #cbd5e1'
+            }}
+          />
+
           <div style={{ display: 'flex', gap: '15px', marginTop: '30px', justifyContent: 'center' }}>
-            <button style={s.btnSecondary} onClick={() => setMostrarPreview(false)}>Voltar para Edição</button>
-            <button style={s.btnPrimary} onClick={() => alert("Tablatura salva!")}>Salvar Tablatura</button>
+            <button style={s.btnSecondary} onClick={() => setMostrarPreview(false)}>
+              Voltar para Edição
+            </button>
+            <button style={s.btnPrimary} onClick={handleSaveTablatura}>
+              Salvar Tablatura
+            </button>
           </div>
         </div>
       </div>
@@ -502,7 +589,7 @@ export default function MontarTablatura() {
 
             {/* BOTÃO DE VELOCIDADE */}
             <div className="controles-player">
-              <select onChange={(e) => changeSpeed(parseFloat(e.target.value))} value={playbackSpeed}>
+              <select style={s.inputStyle} onChange={(e) => changeSpeed(parseFloat(e.target.value))} value={playbackSpeed}>
                 <option value={1}>1x</option>
                 <option value={0.5}>0.5x</option>
                 <option value={0.25}>0.25x</option>
