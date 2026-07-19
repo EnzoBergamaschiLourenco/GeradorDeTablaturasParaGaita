@@ -9,7 +9,7 @@ export const midiToNoteName = (midi) => {
 };
 
 export function useMidiPlayer() {
-  // Suprime aviso do Tone.js (não afeta áudio)
+  // Suprime aviso do Tone.js
   if (typeof window !== 'undefined' && window.Tone && window.Tone.context?.logger) {
     window.Tone.context.logger.level = 'error';
   }
@@ -19,15 +19,15 @@ export function useMidiPlayer() {
   const isPlayingRef = useRef(false);
   const playingIdRef = useRef(null);
   const totalDurationRef = useRef(0);
-  const startTimeRef = useRef(0);
   const pausedTimeRef = useRef(0);
-  const animationRef = useRef(null);
   const currentVolumesRef = useRef({});
   const currentPartesIdsRef = useRef([]);
   const currentMidiPathRef = useRef('');
   const sequenceRef = useRef(null);
   const debounceTimerRef = useRef(null);
-
+  const baseTempoRef = useRef(120);
+  
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playingId, setPlayingId] = useState(null);
   const [progress, setProgress] = useState(0);
@@ -50,21 +50,21 @@ export function useMidiPlayer() {
     return audioCtxRef.current;
   };
 
-  const sanitizeSequence = (sequence) => {
-    if (!sequence.notes || sequence.notes.length === 0) return sequence;
-    let filtered = sequence.notes.filter(note => (note.endTime - note.startTime) > 0);
-    filtered.sort((a, b) => a.startTime - b.startTime);
-    for (let i = 1; i < filtered.length; i++) {
-      if (filtered[i].startTime <= filtered[i - 1].startTime) {
-        filtered[i].startTime = filtered[i - 1].startTime + 0.001;
+  const sanitizeSequence = (seq) => {
+    if (!seq.notes) return seq;
+    let sortedNotes = [...seq.notes].sort((a, b) => a.startTime - b.startTime);
+    for (let i = 1; i < sortedNotes.length; i++) {
+      if (sortedNotes[i].startTime <= sortedNotes[i - 1].startTime) {
+        sortedNotes[i].startTime = sortedNotes[i - 1].startTime + 0.001;
+        sortedNotes[i].endTime = Math.max(sortedNotes[i].endTime, sortedNotes[i].startTime + 0.001);
       }
     }
-    let maxTime = 0;
-    filtered.forEach(note => {
-      const end = note.endTime;
-      if (end > maxTime) maxTime = end;
-    });
-    return { ...sequence, notes: filtered, totalTime: maxTime };
+    const cleanNotes = sortedNotes.map(n => ({
+      ...n,
+      instrument: n.isDrum ? 0 : Math.min(127, Math.max(0, n.instrument || 0)),
+      velocity: Math.min(127, Math.max(0, Math.floor(n.velocity)))
+    }));
+    return { ...seq, notes: cleanNotes };
   };
 
   const loadCombinedSequence = async (partesIds, midiPath) => {
@@ -76,14 +76,15 @@ export function useMidiPlayer() {
       const url = `http://127.0.0.1:8000/midi/play/${midiPath}?partes=${parteId}&_t=${Date.now()}`;
       const seq = await mm.urlToNoteSequence(url);
       if (!seq || !seq.notes || seq.notes.length === 0) continue;
-      if (!firstSeq) firstSeq = seq;
+      if (!firstSeq || (firstSeq.tempos?.length === 0 && seq.tempos?.length > 0)) {
+        firstSeq = seq;
+      }
       const volumeMultiplier = currentVolumesRef.current[parteId] ?? 1;
       const instrumentNum = extractInstrumentNumber(parteId);
       seq.notes.forEach(note => {
         combinedNotes.push({
           ...note,
           instrument: instrumentNum,
-          // Curva quadrática para variação de volume mais perceptível
           velocity: Math.min(1, Math.max(0, note.velocity * volumeMultiplier * volumeMultiplier)),
         });
       });
@@ -98,11 +99,9 @@ export function useMidiPlayer() {
       ...firstSeq,
       notes: combinedNotes,
       totalTime: maxTime,
-      tempos: [],
+      tempos: (firstSeq.tempos && firstSeq.tempos.length > 0) ? firstSeq.tempos : [{ time: 0, qpm: 120 }],
       timeSignatures: firstSeq.timeSignatures || [{ time: 0, numerator: 4, denominator: 4 }],
     };
-    delete combinedSequence.qpm;
-    delete combinedSequence.quantizationInfo;
 
     combinedSequence = sanitizeSequence(combinedSequence);
     totalDurationRef.current = combinedSequence.totalTime;
@@ -110,18 +109,44 @@ export function useMidiPlayer() {
     currentMidiPathRef.current = midiPath;
     sequenceRef.current = combinedSequence;
     setDuration(combinedSequence.totalTime);
+    baseTempoRef.current = combinedSequence.tempos?.[0]?.qpm || 120;
     return combinedSequence;
   };
 
+  // ────────────────────────────
+  //  CRIAÇÃO DO PLAYER (CORRIGIDA)
+  // ────────────────────────────
   const setupPlayer = () => {
-    const ctx = getAudioContext();
+    getAudioContext();
     if (playerRef.current) {
       try { playerRef.current.stop(); } catch {}
     }
-    playerRef.current = new mm.Player(ctx);
+    
+    // O SEGREDO ESTÁ AQUI: O callback 'run' fornece o tempo perfeitamente sincronizado.
+    // 'false' significa que o Magenta não vai tentar gerenciar o contexto de áudio sozinho.
+    playerRef.current = new mm.Player(false, {
+      run: (note) => {
+        // Toda vez que uma nota toca, o tempo atual é atualizado.
+        // Como o player muda a velocidade sozinho, este startTime sempre bate com a nota visual.
+        if (note && typeof note.startTime === 'number') {
+          setTempoAtual(note.startTime);
+          if (totalDurationRef.current > 0) {
+            setProgress((note.startTime / totalDurationRef.current) * 100);
+          }
+        }
+      },
+      stop: () => {
+        setIsPlaying(false);
+        isPlayingRef.current = false;
+      }
+    });
+
     if (playerRef.current.synth) {
       playerRef.current.synth.maxPolyphony = 512;
     }
+    const baseTempo = sequenceRef.current?.tempos?.[0]?.qpm || 120;
+    baseTempoRef.current = baseTempo;
+    playerRef.current.setTempo(baseTempo * playbackSpeed);
   };
 
   const stopAll = () => {
@@ -136,11 +161,6 @@ export function useMidiPlayer() {
     setProgress(0);
     setTempoAtual(0);
     pausedTimeRef.current = 0;
-    startTimeRef.current = 0;
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = null;
-    }
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
@@ -149,15 +169,17 @@ export function useMidiPlayer() {
 
   const pauseAll = () => {
     if (playerRef.current) {
-      try { playerRef.current.pause(); } catch {}
+      try {
+        // Salvamos o último tempo atualizado pelo 'run'
+        pausedTimeRef.current = tempoAtual;
+        playerRef.current.pause();
+      } catch (e) {
+        console.error("Erro ao pausar:", e);
+        pausedTimeRef.current = tempoAtual;
+      }
     }
     isPlayingRef.current = false;
     setIsPlaying(false);
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = null;
-    }
-    pausedTimeRef.current = tempoAtual;
   };
 
   const resumeAll = () => {
@@ -180,15 +202,11 @@ export function useMidiPlayer() {
     playingIdRef.current = 'ALL';
     setIsPlaying(true);
     setPlayingId('ALL');
-    startTimeRef.current = performance.now() - seekTime * 1000;
-    if (animationRef.current) cancelAnimationFrame(animationRef.current);
-    updateProgressLoop();
   };
 
   const startAll = async (partesIds, midiPath, startTime = 0) => {
     try {
       stopAll();
-      getAudioContext();
 
       const combinedSequence = await loadCombinedSequence(partesIds, midiPath);
       setupPlayer();
@@ -196,48 +214,18 @@ export function useMidiPlayer() {
       playerRef.current.start(combinedSequence, undefined, startTime)
         .catch(err => {
           console.error('Erro no player.start:', err);
-          setIsPlaying(false);
-          setPlayingId(null);
-          isPlayingRef.current = false;
-          playingIdRef.current = null;
+          stopAll();
         });
 
       isPlayingRef.current = true;
       playingIdRef.current = 'ALL';
       setIsPlaying(true);
       setPlayingId('ALL');
-      startTimeRef.current = performance.now() - startTime * 1000;
       pausedTimeRef.current = startTime;
-      setTempoAtual(startTime);
-      setProgress((startTime / (totalDurationRef.current || 1)) * 100);
-
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-      updateProgressLoop();
     } catch (err) {
       console.error('Erro ao iniciar reprodução:', err);
-      setIsPlaying(false);
-      setPlayingId(null);
-      isPlayingRef.current = false;
-      playingIdRef.current = null;
+      stopAll();
     }
-  };
-
-  const updateProgressLoop = () => {
-    if (!isPlayingRef.current) return;
-    const elapsed = (performance.now() - startTimeRef.current) / 1000;
-    const current = Math.min(elapsed, totalDurationRef.current || 1);
-    setTempoAtual(current);
-    setProgress((current / (totalDurationRef.current || 1)) * 100);
-    if (current >= (totalDurationRef.current || 1)) {
-      isPlayingRef.current = false;
-      playingIdRef.current = null;
-      setIsPlaying(false);
-      setPlayingId(null);
-      setProgress(100);
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-      return;
-    }
-    animationRef.current = requestAnimationFrame(updateProgressLoop);
   };
 
   const seek = (percent) => {
@@ -247,50 +235,49 @@ export function useMidiPlayer() {
     if (isPlayingRef.current && playerRef.current) {
       try {
         playerRef.current.seekTo(targetTime);
-        startTimeRef.current = performance.now() - targetTime * 1000;
-      } catch (e) {}
+      } catch (e) {
+        console.warn('seekTo falhou, recriando player');
+        recreatePlayerAtTime(targetTime, true);
+        return;
+      }
+    } else {
+      pausedTimeRef.current = targetTime;
     }
-
-    pausedTimeRef.current = targetTime;
+    
     setTempoAtual(targetTime);
     setProgress(percent);
   };
 
-  // Recarrega a sequência mantendo o instante atual (com debounce)
-  const applyVolumeChangeWithReload = async () => {
+  const recreatePlayerAtTime = async (targetTime, shouldPlay) => {
     if (currentPartesIdsRef.current.length === 0 || !currentMidiPathRef.current) return;
-
-    const wasPlaying = isPlayingRef.current;
-    const currentTime = wasPlaying ? tempoAtual : pausedTimeRef.current;
-
     if (playerRef.current) {
       try { playerRef.current.stop(); } catch {}
       playerRef.current = null;
     }
-
     const newSeq = await loadCombinedSequence(
       currentPartesIdsRef.current,
       currentMidiPathRef.current
     );
-
     setupPlayer();
-
-    if (wasPlaying) {
-      playerRef.current.start(newSeq, undefined, currentTime)
-        .catch(err => {
-          console.error('volume: erro ao retomar', err);
-          isPlayingRef.current = false;
-          setIsPlaying(false);
-          playerRef.current = null;
-        });
-      startTimeRef.current = performance.now() - currentTime * 1000;
-      pausedTimeRef.current = currentTime;
+    if (shouldPlay) {
+      playerRef.current.start(newSeq, undefined, targetTime).catch(err => console.error(err));
+      isPlayingRef.current = true;
+      playingIdRef.current = 'ALL';
+      setIsPlaying(true);
+      setPlayingId('ALL');
     } else {
-      pausedTimeRef.current = currentTime;
+      pausedTimeRef.current = targetTime;
       sequenceRef.current = newSeq;
-      setTempoAtual(currentTime);
-      setProgress((currentTime / (totalDurationRef.current || 1)) * 100);
     }
+    setTempoAtual(targetTime);
+    setProgress((targetTime / (totalDurationRef.current || 1)) * 100);
+  };
+
+  const applyVolumeChangeWithReload = async () => {
+    if (currentPartesIdsRef.current.length === 0 || !currentMidiPathRef.current) return;
+    const wasPlaying = isPlayingRef.current;
+    const currentTime = wasPlaying ? tempoAtual : pausedTimeRef.current;
+    await recreatePlayerAtTime(currentTime, wasPlaying);
   };
 
   const setVolume = (parteId, vol) => {
@@ -305,19 +292,29 @@ export function useMidiPlayer() {
     }, 500);
   };
 
+  const changeSpeed = (newSpeed) => {
+    setPlaybackSpeed(newSpeed);
+    if (playerRef.current) {
+      const newTempo = baseTempoRef.current * newSpeed;
+      playerRef.current.setTempo(newTempo);
+    }
+  };
+
   const togglePlayAll = async (partesIds, midiPath, volumesObj) => {
-    Object.keys(volumesObj || {}).forEach(id => {
-      currentVolumesRef.current[id] = volumesObj[id] ?? 1;
-    });
+    if (volumesObj) {
+      Object.keys(volumesObj).forEach(id => {
+        currentVolumesRef.current[id] = volumesObj[id];
+      });
+    }
 
     if (!midiPath) return;
     if (!Array.isArray(partesIds) || partesIds.length === 0) return;
 
-    if (playingIdRef.current === 'ALL' && isPlayingRef.current) {
+    if (isPlayingRef.current) {
       pauseAll();
       return;
     }
-    if (playingIdRef.current === 'ALL' && !isPlayingRef.current && playerRef.current) {
+    if (playerRef.current) {
       resumeAll();
       return;
     }
@@ -343,5 +340,7 @@ export function useMidiPlayer() {
     playingId,
     tempoAtual,
     volumes,
+    changeSpeed,
+    playbackSpeed,
   };
 }

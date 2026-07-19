@@ -47,12 +47,23 @@ export default function MontarTablatura() {
   };
 
   const {
-    togglePlayAll, stop, seek, progress, duration, isPlaying, playingId, tempoAtual, alterarVolume, volumes = {}
+    togglePlayAll, stop, seek, progress, duration, isPlaying, playingId, tempoAtual, alterarVolume, volumes, changeSpeed, playbackSpeed = {}
   } = useMidiPlayer();
 
+  useEffect(() => {
+    console.log("Tempo atual recebido no componente:", tempoAtual);
+  }, [tempoAtual]);
+
   const notaEstaTocando = (nota, tempo) => {
-    if (!nota || nota.inicio === undefined || nota.fim === undefined) return false;
-    return tempo >= nota.inicio && tempo < nota.fim;
+    if (!nota) return false;
+
+    // O tempo aqui já é o musical absoluto. Não multiplique!
+    const start = nota.startTime ?? nota.inicio;
+    const end = nota.endTime ?? nota.fim;
+
+    // Use uma tolerância mínima (0.1s) para evitar que a nota "pisque" 
+    // se o render do React for um pouco mais lento que o áudio
+    return tempo >= (start - 0.05) && tempo < (end + 0.05);
   };
 
   const parteEstaTocando = (parteId) => {
@@ -417,7 +428,8 @@ export default function MontarTablatura() {
                             <span style={{ color: '#a0aec0', fontSize: '12px', fontStyle: 'italic' }}>Aguardando tradução...</span>
                           ) : (
                             notasPorParte[parte.id].map((nota, index) => {
-                              const estaTocando = notaEstaTocando(nota, tempoAtual);
+                              const tempoSeguro = (typeof tempoAtual === 'number' && !isNaN(tempoAtual)) ? tempoAtual : 0;
+                              const estaTocando = notaEstaTocando(nota, tempoSeguro);
                               const estaAlocada = notasAlocadasSet.has(nota.id);
                               const estaSelecionada = notasSelecionadas.includes(nota.id);
 
@@ -486,6 +498,15 @@ export default function MontarTablatura() {
             <div style={{ flex: 1 }}>
               <h2 style={{ color: '#333', margin: 0, fontSize: '24px' }}>{nome}</h2>
               <span style={{ color: '#666' }}>{autor}</span>
+            </div>
+
+            {/* BOTÃO DE VELOCIDADE */}
+            <div className="controles-player">
+              <select onChange={(e) => changeSpeed(parseFloat(e.target.value))} value={playbackSpeed}>
+                <option value={1}>1x</option>
+                <option value={0.5}>0.5x</option>
+                <option value={0.25}>0.25x</option>
+              </select>
             </div>
 
             {/* PLAYER MOVIDO PARA A DIREITA */}
