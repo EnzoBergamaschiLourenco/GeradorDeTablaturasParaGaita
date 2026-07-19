@@ -8,6 +8,8 @@ import { supabase } from '../supabaseClient';
 // ================= COMPONENTE PRINCIPAL =================
 export default function MontarTablatura() {
 
+  const [notaAvaliacao, setNotaAvaliacao] = useState(0);
+
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -37,7 +39,11 @@ export default function MontarTablatura() {
   const [modalAjusteAberto, setModalAjusteAberto] = useState(false);
   const [notasPendentes, setNotasPendentes] = useState([]);
   const [comandosDaGaita, setComandosDaGaita] = useState([]);
-  const [mapeamentoUsuario, setMapeamentoUsuario] = useState({});
+  const [usuario, mapeamentoUsuario] = useState(null);
+  useEffect(() => {
+    const dadosSalvos = localStorage.getItem('usuarioLogado');
+    if (dadosSalvos) mapeamentoUsuario(JSON.parse(dadosSalvos));
+  }, []);
   const [parteEmAjuste, setParteEmAjuste] = useState(null);
 
   const [linhasLetra, setLinhasLetra] = useState([]);
@@ -65,9 +71,27 @@ export default function MontarTablatura() {
     }
   }, [mostrarPreview, linhasLetra]);
   const handleSaveTablatura = async () => {
-    if (!user) {
+    if (!usuario) {
       alert("Usuário não autenticado.");
       return;
+      if (!insertError) {
+        // 2. Garanta que o midiSelecionado.id existe antes de tentar salvar
+        if (midiSelecionado?.id) {
+          const { error: ratingError } = await supabase
+            .from('avaliacoes_midi')
+            .insert({
+              usuario_id: usuario.id, // Certifique-se de que usuario.id existe aqui
+              midi_id: midiSelecionado.id,
+              nota: notaAvaliacao
+            });
+
+          if (ratingError) {
+            console.error("Erro ao salvar a avaliação:", ratingError);
+            alert("Tablatura salva, mas erro ao registrar avaliação.");
+          }
+        }
+        navigate('/');
+      }
     }
 
     // Buscar o ID do layout da gaita (tom + tipo)
@@ -90,17 +114,30 @@ export default function MontarTablatura() {
       .insert({
         tablatura: textoTablatura,
         data: dataAtual,
-        usuario_id: user.id,
+        usuario_id: usuario.id,
         midi_id: midiSelecionado?.id,
         musica_id: musicaId,
-        gaita_ID: layout.id
+        gaita_id: layout.id
       });
 
     if (insertError) {
       console.error(insertError);
       alert("Erro ao salvar tablatura.");
     } else {
-      navigate('/menu');
+      if (midiSelecionado?.id) {
+        const { error: ratingError } = await supabase
+          .from('avaliacoes_midi')
+          .insert({
+            usuario_id: usuario.id,
+            midi_id: midiSelecionado.id,
+            nota: notaAvaliacao
+          });
+
+        if (ratingError) {
+          console.error("Erro ao salvar a avaliação do MIDI:", ratingError);
+        }
+      }
+      navigate('/');
     }
   };
 
@@ -366,6 +403,50 @@ export default function MontarTablatura() {
         <div style={{ ...s.mainCard, maxWidth: '800px', textAlign: 'center' }}>
           <h2 style={{ color: '#007bff', marginBottom: 5 }}>{nome}</h2>
           <p style={{ color: '#666', marginBottom: 30 }}>{autor}</p>
+
+          {/* CARD DO MIDI COM EXIBIÇÃO E AVALIAÇÃO POR ESTRELAS */}
+          {midiSelecionado && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              backgroundColor: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '14px',
+              padding: '15px',
+              boxSizing: 'border-box',
+              marginBottom: '25px',
+              textAlign: 'left'
+            }}>
+              <div style={{ width: 42, height: 42, backgroundColor: '#e8f0fe', color: '#1a73e8', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRadius: '10px', fontSize: '18px' }}>
+                🎵
+              </div>
+              <div style={{ flex: 1, paddingLeft: 15 }}>
+                <span style={{ color: '#333', fontWeight: 'bold', display: 'block', fontSize: '14px' }}>
+                  {midiSelecionado.arquivo_midi}
+                </span>
+                <small style={{ color: '#666', fontSize: 12, display: 'block', marginBottom: '6px' }}>
+                  Avalie este arquivo MIDI:
+                </small>
+                {/* Sistema de 5 estrelas clicáveis */}
+                <div style={{ display: 'flex', gap: '5px' }}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <span
+                      key={star}
+                      onClick={() => setNotaAvaliacao(star)}
+                      style={{
+                        cursor: 'pointer',
+                        fontSize: '26px',
+                        color: star <= notaAvaliacao ? '#ffc107' : '#cbd5e1',
+                        transition: 'color 0.1s'
+                      }}
+                    >
+                      ★
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: '15px', marginBottom: 20, justifyContent: 'center' }}>
             <div>

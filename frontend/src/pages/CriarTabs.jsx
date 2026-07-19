@@ -14,7 +14,7 @@ export default function CriarTabs() {
   // Estados de controle do MIDI
   const [musicaId, setMusicaId] = useState(null);
   const [arquivosMidi, setArquivosMidi] = useState([]);
-  const [midiSelecionado, setMidiSelecionado] = useState(null); // NOVO: Controla o MIDI escolhido
+  const [midiSelecionado, setMidiSelecionado] = useState(null); 
   const [uploadingMidi, setUploadingMidi] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -64,15 +64,35 @@ export default function CriarTabs() {
     setSugestoes([]);
   };
 
-  // ===== BUSCA DE MATCH EXATO PARA MIDIs =====
+  // ===== BUSCA DE MATCH EXATO E CÁLCULO DE MÉDIA DE ESTRELAS =====
   const buscarMidis = async (id) => {
-    const { data, error } = await supabase
+    const { data: midis, error } = await supabase
       .from('arquivos_midi')
       .select('id, arquivo_midi, path')
       .eq('musica_id', id);
     
-    if (!error) {
-      setArquivosMidi(data || []);
+    if (!error && midis) {
+      const midiIds = midis.map(m => m.id);
+
+      if (midiIds.length > 0) {
+        // Busca as avaliações dos arquivos MIDI encontrados
+        const { data: avaliacoes, error: errorAvaliacoes } = await supabase
+          .from('avaliacoes_midi')
+          .select('midi_id, nota')
+          .in('midi_id', midiIds);
+
+        if (!errorAvaliacoes && avaliacoes) {
+          // Atribui a média calculada a cada arquivo
+          const midisComMedia = midis.map(midi => {
+            const notasDoMidi = avaliacoes.filter(a => a.midi_id === midi.id).map(a => a.nota);
+            const media = notasDoMidi.length > 0 ? notasDoMidi.reduce((a, b) => a + b, 0) / notasDoMidi.length : 0;
+            return { ...midi, mediaNota: media };
+          });
+          setArquivosMidi(midisComMedia);
+          return;
+        }
+      }
+      setArquivosMidi(midis || []);
     }
   };
 
@@ -95,7 +115,7 @@ export default function CriarTabs() {
 
       if (data) {
         setMusicaId(data.id);
-        if (data.letra) setLetra(data.letra); // Sincroniza a letra oficial do banco
+        if (data.letra) setLetra(data.letra); 
         buscarMidis(data.id);
       } else {
         setMusicaId(null);
@@ -151,10 +171,8 @@ export default function CriarTabs() {
         .single();
       if (insertError) throw insertError;
       
-
-      
       buscarMidis(currentMusicaId);
-      setMidiSelecionado(novoMidi); // Auto-seleciona o MIDI recém enviado
+      setMidiSelecionado(novoMidi); 
 
     } catch (error) {
       console.error("Erro no upload:", error);
@@ -199,14 +217,13 @@ export default function CriarTabs() {
         currentMusicaId = novaMusica.id;
       }
 
-      // Envia TODAS as informações cruciais pelo Router State
       navigate('/MontarTablatura', { 
         state: { 
           musicaId: currentMusicaId, 
           nome: musica, 
           autor: autorMusica,
-          letra: letra, // Agora a letra está indo!
-          midi: midiSelecionado // O MIDI selecionado vai junto
+          letra: letra, 
+          midi: midiSelecionado 
         } 
       });
 
@@ -262,7 +279,7 @@ export default function CriarTabs() {
               placeholder="Ex: Luiz Gonzaga"
               value={autorMusica}
               onChange={(e) => setAutorMusica(e.target.value)}
-              disabled={!!musicaId} // Bloqueia edição se música já existe
+              disabled={!!musicaId} 
             />
           </div>
 
@@ -275,7 +292,7 @@ export default function CriarTabs() {
               placeholder="Cole ou digite a letra da música aqui..."
               value={letra}
               onChange={(e) => setLetra(e.target.value)}
-              disabled={!!musicaId} // Bloqueia edição se música já existe
+              disabled={!!musicaId} 
             />
           </div>
 
@@ -296,7 +313,6 @@ export default function CriarTabs() {
 
             <div style={midiListContainer}>
               
-              {/* Lógica condicional: Se tem um MIDI selecionado, exibe apenas ele em destaque */}
               {midiSelecionado ? (
                 <div style={{ ...midiCardStyle, border: '2px solid #007bff', backgroundColor: '#eff6ff' }}>
                   <div style={iconBoxPrimary}>🎵</div>
@@ -315,7 +331,6 @@ export default function CriarTabs() {
                 </div>
               ) : (
                 <>
-                  {/* Se NÃO tem MIDI selecionado, mostra o botão de Upload e a Lista */}
                   <div style={midiCardStyle}>
                     <div style={iconBoxPrimary}>+</div>
                     <div style={{ flex: 1, paddingLeft: 15, textAlign: 'left' }}>
@@ -335,7 +350,31 @@ export default function CriarTabs() {
                         <span style={{ color: '#333', fontWeight: 'bold', display: 'block', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', fontSize: '14px' }}>
                           {midi.arquivo_midi}
                         </span>
-                        <small style={{ color: '#666', fontSize: 12 }}>Disponível no banco</small>
+                        
+                        {/* EXIBIÇÃO EM ESTRELAS COM SUPORTE A MEIO PREENCHIMENTO */}
+                        <div style={{ display: 'flex', gap: '2px', marginTop: '4px' }}>
+                          {[1, 2, 3, 4, 5].map((star) => {
+                            const notaArredondada = Math.round((midi.mediaNota || 0) * 2) / 2;
+                            let styleEstrela = { color: '#cbd5e1' }; // Vazia por padrão
+
+                            if (notaArredondada >= star) {
+                              styleEstrela = { color: '#ffc107' }; // Totalmente preenchida
+                            } else if (notaArredondada === star - 0.5) {
+                              styleEstrela = {
+                                background: 'linear-gradient(90deg, #ffc107 50%, #cbd5e1 50%)',
+                                WebkitBackgroundClip: 'text',
+                                WebkitTextFillColor: 'transparent',
+                                display: 'inline-block'
+                              }; // Meia estrela preenchida com gradiente
+                            }
+
+                            return (
+                              <span key={star} style={{ fontSize: '16px', ...styleEstrela }}>
+                                ★
+                              </span>
+                            );
+                          })}
+                        </div>
                       </div>
                       <button style={useMidiButton} onClick={() => setMidiSelecionado(midi)}>
                         Usar
@@ -360,7 +399,7 @@ export default function CriarTabs() {
   );
 }
 
-/* ===== ESTILOS (Mantidos da sua versão anterior) ===== */
+/* ===== ESTILOS ===== */
 const pageStyle = { position: 'absolute', top: 0, left: 0, width: '100vw', minHeight: '100vh', backgroundColor: '#f4f7fb', display: 'flex', justifyContent: 'center', alignItems: 'center', fontFamily: 'Arial, sans-serif', padding: '40px 20px', boxSizing: 'border-box', overflowX: 'hidden' };
 const contentWrapper = { display: 'flex', gap: '30px', width: '100%', maxWidth: '1100px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'flex-start' };
 const leftColumn = { flex: 1, minWidth: '320px', maxWidth: '500px', backgroundColor: 'white', padding: '40px', borderRadius: '24px', boxShadow: '0 15px 40px rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' };
@@ -369,7 +408,6 @@ const labelStyle = { color: '#666', fontSize: 13, fontWeight: 'bold', marginBott
 const inputStyle = { width: '100%', padding: '15px 18px', marginBottom: 20, borderRadius: '14px', border: '1px solid #d8e3f0', backgroundColor: 'white', color: '#333', outline: 'none', boxSizing: 'border-box', fontSize: '15px', transition: '0.2s' };
 const textareaStyle = { width: '100%', height: 200, padding: '15px 18px', borderRadius: '14px', border: '1px solid #d8e3f0', backgroundColor: 'white', color: '#333', fontFamily: 'Arial, sans-serif', fontSize: '14px', resize: 'vertical', boxSizing: 'border-box', outline: 'none', lineHeight: '1.5', transition: '0.2s' };
 const buttonStyle = { width: '100%', padding: '16px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '14px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer', marginTop: 20, boxShadow: '0 6px 18px rgba(0,123,255,0.25)', letterSpacing: '0.5px' };
-const secondaryButton = { flex: 1, padding: '12px', fontSize: '14px', borderRadius: '10px', border: 'none', backgroundColor: '#e2e8f0', color: '#666', fontWeight: 'bold', cursor: 'pointer' };
 const linkStyle = { color: '#666', fontSize: '14px', cursor: 'pointer', textDecoration: 'underline', marginTop: 20, textAlign: 'center', fontWeight: '500' };
 const suggestBox = { position: 'absolute', top: 'calc(100% - 15px)', left: 0, right: 0, backgroundColor: 'white', border: '1px solid #d8e3f0', borderRadius: '14px', boxShadow: '0 8px 25px rgba(0,0,0,0.08)', zIndex: 10, overflow: 'hidden' };
 const suggestItem = { padding: '12px 16px', cursor: 'pointer', textAlign: 'left', borderBottom: '1px solid #f4f7fb' };
