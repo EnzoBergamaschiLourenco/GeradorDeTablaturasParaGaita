@@ -12,8 +12,8 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Menu />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/perfil" element={<Perfil />} />
+        <Route path="/Login" element={<Login />} />
+        <Route path="/Perfil" element={<Perfil />} />
         <Route path="/VisualizarTabs" element={<VisualizarTabs />} />
         <Route path="/CriarTabs" element={<CriarTabs />} />
         <Route path="/EditarTabs" element={<EditarTabs />} />

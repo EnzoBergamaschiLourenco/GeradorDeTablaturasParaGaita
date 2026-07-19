@@ -48,7 +48,7 @@ export default function Login() {
             id: data.id,
             nome: data.nome,
             email: data.email,
-            foto: data.foto_perfil
+            foto_perfil: data.foto_perfil
           })
         );
 

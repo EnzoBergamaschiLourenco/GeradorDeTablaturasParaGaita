@@ -61,7 +61,7 @@ export default function Menu() {
         }}
       >
         {usuario ? (
-          <div
+          <div onClick={() => navigate('/Perfil')}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -69,22 +69,30 @@ export default function Menu() {
               backgroundColor: 'white',
               padding: '10px 14px',
               borderRadius: '12px',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.08)'
+              boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+              overflow: 'hidden',
             }}
           >
-            <img
-              onClick={() => navigate('/perfil')}
-              src={usuario.foto_perfil || 'https://via.placeholder.com/45'}
-              alt="Perfil"
-              style={{
-                width: '45px',
-                height: '45px',
-                borderRadius: '50%',
-                border: '2px solid #007bff',
-                cursor: 'pointer',
-                objectFit: 'cover'
-              }}
-            />
+            {usuario.foto_perfil ? (
+              <img
+                src={usuario.foto_perfil}
+                alt="Perfil"
+                style={{
+                  width: '80px',
+                  height: '80px',
+                  borderRadius: '50%',
+                  objectFit: 'cover',
+                  border: '3px solid #007bff',
+                  boxSizing: 'border-box'
+                }}
+                onError={(e) => { e.target.style.display = 'none'; }} // Se a foto falhar, esconde
+              />
+            ) : (
+              /* Ícone de Usuário Local (SVG) */
+              <svg viewBox="0 0 24 24" width="30" height="30" fill="#64748b">
+                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+              </svg>
+            )}
 
             <div style={{ textAlign: 'left' }}>
               <span
@@ -178,7 +186,7 @@ export default function Menu() {
         >
           <input
             type="text"
-            placeholder="Pesquisar músicas..."
+            placeholder="Pesquisar tablaturas..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             style={{

@@ -8,11 +8,8 @@ export default function Perfil() {
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const navigate = useNavigate();
 
-  const [userData, setUserData] = useState({
-    nome: '',
-    email: '',
-    foto_perfil: ''
-  });
+  // Nova estrutura de estado solicitada
+  const [usuario, setUsuario] = useState(null);
 
   const [nome, setNome] = useState('');
   const [fotoFile, setFotoFile] = useState(null);
@@ -22,13 +19,25 @@ export default function Perfil() {
   const [senhaConfirmacaoDelete, setSenhaConfirmacaoDelete] = useState('');
 
   useEffect(() => {
-    const salvo = localStorage.getItem('usuarioLogado');
-    if (salvo) {
-      const user = JSON.parse(salvo);
-      setUserData(user);
-      setNome(user.nome);
+    const dadosSalvos = localStorage.getItem('usuarioLogado');
+    if (dadosSalvos) {
+      const user = JSON.parse(dadosSalvos);
+      setUsuario(user);
+      setNome(user.nome || '');
+    } else {
+      // Redireciona para a tela de login caso não esteja logado
+      navigate('/login');
     }
-  }, []);
+  }, [navigate]);
+
+  // Bloqueia a renderização de componentes filhos enquanto o useEffect valida o login,
+  // impedindo erros de "cannot read property of null"
+  if (!usuario) {
+    return null; 
+  }
+
+  // Detecta se a foto foi gravada como 'foto' (seu login atual) ou 'foto_perfil'
+  const urlFoto = usuario.foto || usuario.foto_perfil;
 
   // =========================
   // UPLOAD AVATAR
@@ -68,7 +77,7 @@ export default function Perfil() {
     const { data: userVerify } = await supabase
       .from('usuarios')
       .select('*')
-      .eq('email', userData.email)
+      .eq('email', usuario.email)
       .eq('senha', senhaAtual)
       .single();
 
@@ -78,15 +87,15 @@ export default function Perfil() {
       return;
     }
 
-    let foto_perfil = userData.foto_perfil;
+    let foto_perfil_atualizada = urlFoto || '';
 
     // se enviou nova imagem
     if (fotoFile) {
       const uploadedUrl = await uploadAvatar(fotoFile);
-      if (uploadedUrl) foto_perfil = uploadedUrl;
+      if (uploadedUrl) foto_perfil_atualizada = uploadedUrl;
     }
 
-    const updates = { nome, foto_perfil };
+    const updates = { nome, foto_perfil: foto_perfil_atualizada };
 
     if (senhaNova.trim() !== '') {
       updates.senha = senhaNova;
@@ -95,21 +104,23 @@ export default function Perfil() {
     const { error } = await supabase
       .from('usuarios')
       .update(updates)
-      .eq('email', userData.email);
+      .eq('email', usuario.email);
 
     if (error) {
       alert(error.message);
     } else {
+      // Garante compatibilidade total salvando tanto em 'foto' quanto em 'foto_perfil'
       const novoUsuario = {
-        ...userData,
+        ...usuario,
         nome,
-        foto_perfil
+        foto: foto_perfil_atualizada,
+        foto_perfil: foto_perfil_atualizada
       };
 
-      setUserData(novoUsuario);
+      setUsuario(novoUsuario);
       localStorage.setItem('usuarioLogado', JSON.stringify(novoUsuario));
 
-      alert("Perfil atualizado!");
+      alert("Perfil updated!");
       setIsEditing(false);
       setSenhaAtual('');
       setSenhaNova('');
@@ -133,7 +144,7 @@ export default function Perfil() {
     const { data: userVerify } = await supabase
       .from('usuarios')
       .select('*')
-      .eq('email', userData.email)
+      .eq('email', usuario.email)
       .eq('senha', senhaConfirmacaoDelete)
       .single();
 
@@ -146,7 +157,7 @@ export default function Perfil() {
     await supabase
       .from('usuarios')
       .delete()
-      .eq('email', userData.email);
+      .eq('email', usuario.email);
 
     localStorage.removeItem('usuarioLogado');
     navigate('/login');
@@ -164,21 +175,25 @@ export default function Perfil() {
           Gerencie sua conta
         </p>
 
-        {/* AVATAR */}
-        <img
-          src={
-            userData.foto_perfil ||
-            'https://via.placeholder.com/150'
-          }
-          style={avatarStyle}
-        />
+        {/* AVATAR COM FALLBACK SVG LOCAL */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 15 }}>
+          {urlFoto ? (
+            <img src={urlFoto} style={avatarStyle} alt="Perfil" />
+          ) : (
+            <div style={{ ...avatarStyle, display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: '#e2e8f0' }}>
+              <svg viewBox="0 0 24 24" width="60" height="60" fill="#64748b">
+                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+              </svg>
+            </div>
+          )}
+        </div>
 
         {/* VIEW */}
         {!isEditing && !isDeletingAccount && (
           <>
             <div style={infoBox}>
-              <p><b>Nome:</b> {userData.nome}</p>
-              <p><b>Email:</b> {userData.email}</p>
+              <p><b>Nome:</b> {usuario.nome}</p>
+              <p><b>Email:</b> {usuario.email}</p>
             </div>
 
             <button style={buttonStyle} onClick={() => setIsEditing(true)}>
@@ -201,7 +216,6 @@ export default function Perfil() {
               placeholder="Nome"
             />
 
-            {/* FILE INPUT (NOVO) */}
             <input
               type="file"
               accept="image/*"
@@ -228,6 +242,7 @@ export default function Perfil() {
             <button
               style={{ ...buttonStyle, backgroundColor: '#28a745' }}
               onClick={handleUpdate}
+              disabled={loading}
             >
               {loading ? 'Salvando...' : 'Salvar'}
             </button>
@@ -252,13 +267,18 @@ export default function Perfil() {
             <button
               style={{ ...buttonStyle, backgroundColor: 'red' }}
               onClick={handleDeleteAccount}
+              disabled={loading}
             >
-              Excluir conta
+              {loading ? 'Excluindo...' : 'Excluir conta'}
             </button>
+            
+            <p style={link} onClick={() => setIsDeletingAccount(false)}>
+              Cancelar
+            </p>
           </>
         )}
 
-        <p style={link} onClick={() => navigate('/')}>
+        <p style={{ ...link, marginTop: 20, display: 'block' }} onClick={() => navigate('/')}>
           Voltar ao menu
         </p>
       </div>
@@ -267,7 +287,6 @@ export default function Perfil() {
 }
 
 /* ===== STYLE ===== */
-
 const pageStyle = {
   position: 'fixed',
   inset: 0,
@@ -293,7 +312,7 @@ const avatarStyle = {
   borderRadius: '50%',
   objectFit: 'cover',
   border: '3px solid #007bff',
-  marginBottom: 15
+  boxSizing: 'border-box'
 };
 
 const inputStyle = {
@@ -301,7 +320,8 @@ const inputStyle = {
   padding: 12,
   marginBottom: 10,
   borderRadius: 10,
-  border: '1px solid #d8e3f0'
+  border: '1px solid #d8e3f0',
+  boxSizing: 'border-box'
 };
 
 const buttonStyle = {
@@ -311,14 +331,16 @@ const buttonStyle = {
   color: '#fff',
   border: 'none',
   borderRadius: 12,
-  cursor: 'pointer'
+  cursor: 'pointer',
+  fontWeight: 'bold'
 };
 
 const link = {
   color: '#007bff',
   cursor: 'pointer',
   textDecoration: 'underline',
-  fontSize: 13
+  fontSize: 13,
+  marginTop: 10
 };
 
 const danger = {
@@ -326,7 +348,7 @@ const danger = {
   cursor: 'pointer',
   textDecoration: 'underline',
   fontSize: 13,
-  marginTop: 10
+  marginTop: 15
 };
 
 const infoBox = {
