@@ -4,7 +4,6 @@ import Login from './pages/Login';
 import Perfil from './pages/Perfil';
 import VisualizarTabs from './pages/VisualizarTabs';
 import CriarTabs from './pages/CriarTabs';
-import EditarTabs from './pages/EditarTabs';
 import MontarTablatura from './pages/MontarTablatura';
 
 function App() {
@@ -16,7 +15,6 @@ function App() {
         <Route path="/Perfil" element={<Perfil />} />
         <Route path="/VisualizarTabs" element={<VisualizarTabs />} />
         <Route path="/CriarTabs" element={<CriarTabs />} />
-        <Route path="/EditarTabs" element={<EditarTabs />} />
         <Route path="/MontarTablatura" element={<MontarTablatura />} />
       </Routes>
     </Router>
