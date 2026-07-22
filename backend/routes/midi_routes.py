@@ -19,25 +19,29 @@ async def get_partes(caminho_completo: str):
 
 
 @router.get("/midi/exportar/{caminho_completo:path}/{parte_id}")
-async def exportar_midi(caminho_completo: str, parte_id: str):
+async def exportar_midi(
+    caminho_completo: str,
+    parte_id: str,
+    tom: str = "C",        # parâmetros obrigatórios para gaita
+    tipo: str = "diatonica",
+    overrides: str = ""    # JSON string opcional
+):
     try:
-        caminho_arquivo = midi_service.exportar_parte_para_midi(
-            caminho_completo,
-            parte_id
+        overrides_dict = {}
+        if overrides:
+            import json
+            overrides_dict = json.loads(overrides)
+
+        caminho_arquivo = midi_service.exportar_tablatura_para_midi(
+            caminho_completo, parte_id, tom, tipo, overrides_dict
         )
-
-        if not os.path.exists(caminho_arquivo):
-            raise HTTPException(status_code=404, detail="Arquivo não gerado")
-
         return FileResponse(
             caminho_arquivo,
             media_type="audio/midi",
             filename=os.path.basename(caminho_arquivo)
         )
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.get("/midi/play/{caminho_completo:path}")
 async def tocar_midi(

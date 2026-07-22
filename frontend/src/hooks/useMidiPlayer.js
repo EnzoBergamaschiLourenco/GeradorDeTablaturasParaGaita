@@ -78,17 +78,34 @@ export function useMidiPlayer() {
     for (const parteId of partesIds) {
       const url = `http://127.0.0.1:8000/midi/play/${midiPath}?partes=${parteId}&_t=${Date.now()}`;
       const seq = await mm.urlToNoteSequence(url);
+      const notasReais = seq.notes
+        .filter(n => n.velocity > 0)
+        .sort((a, b) => a.startTime - b.startTime);
+
+      console.log(
+        "[MAGENTA PRIMEIRAS NOTAS]",
+        notasReais.slice(0, 20).map(n => ({
+          pitch: n.pitch,
+          start: n.startTime,
+          end: n.endTime,
+          instrument: n.instrument,
+          velocity: n.velocity,
+        }))
+      );
       if (!seq || !seq.notes || seq.notes.length === 0) continue;
       if (!firstSeq || (firstSeq.tempos?.length === 0 && seq.tempos?.length > 0)) {
         firstSeq = seq;
       }
+
       const volumeMultiplier = currentVolumesRef.current[parteId] ?? 1;
       const instrumentNum = extractInstrumentNumber(parteId);
+
       seq.notes.forEach(note => {
         combinedNotes.push({
           ...note,
           instrument: instrumentNum,
-          velocity: Math.min(1, Math.max(0, note.velocity * volumeMultiplier * volumeMultiplier)),
+          // CORREÇÃO: O teto de volume (velocity) na escala MIDI deve ser 127 e arredondado para um inteiro
+          velocity: Math.min(127, Math.max(0, Math.floor(note.velocity * volumeMultiplier * volumeMultiplier))),
         });
       });
       if (seq.totalTime > maxTime) maxTime = seq.totalTime;
@@ -99,7 +116,6 @@ export function useMidiPlayer() {
     }
 
     // Nota fantasma utilizada exclusivamente para sincronizar
-    // o callback run() imediatamente no início da reprodução.
     const ghostNote = {
       pitch: 0,
       startTime: 0,
@@ -112,22 +128,15 @@ export function useMidiPlayer() {
 
     let combinedSequence = {
       ...firstSeq,
-      // A nota fantasma vem primeiro e não produz som,
-      // pois sua velocidade é 0.
       notes: [
         ghostNote,
         ...combinedNotes,
       ],
-      // A nota fantasma não altera a duração real do MIDI.
       totalTime: maxTime,
-      tempos: (
-        firstSeq.tempos &&
-        firstSeq.tempos.length > 0
-      )
+      tempos: (firstSeq.tempos && firstSeq.tempos.length > 0)
         ? firstSeq.tempos
         : [{ time: 0, qpm: 120 }],
-      timeSignatures: firstSeq.timeSignatures ||
-        [{ time: 0, numerator: 4, denominator: 4 }],
+      timeSignatures: firstSeq.timeSignatures || [{ time: 0, numerator: 4, denominator: 4 }],
     };
 
     combinedSequence = sanitizeSequence(combinedSequence);
@@ -137,6 +146,8 @@ export function useMidiPlayer() {
     sequenceRef.current = combinedSequence;
     setDuration(combinedSequence.totalTime);
     baseTempoRef.current = combinedSequence.tempos?.[0]?.qpm || 120;
+
+    console.log("[AUDIO DEBUG] Sequência combinada final:", combinedSequence);
     return combinedSequence;
   };
 
@@ -305,6 +316,7 @@ export function useMidiPlayer() {
       const combinedSequence = await loadCombinedSequence(partesIds, midiPath);
       setupPlayer();
 
+      console.log(combinedSequence.notes[0]);
       playerRef.current.start(combinedSequence, undefined, startTime)
         .catch(err => {
           console.error('Erro no player.start:', err);
@@ -353,6 +365,7 @@ export function useMidiPlayer() {
       currentPartesIdsRef.current,
       currentMidiPathRef.current
     );
+
     setupPlayer();
     if (shouldPlay) {
       playerRef.current.start(newSeq, undefined, targetTime).catch(err => console.error(err));

@@ -10,7 +10,7 @@ supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 ARQUIVOS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../midiarchives'))
 
 # ==========================================================
-# FUNÇÕES AUXILIARES DE CONVERSÃO DE TEMPO (TICKS -> SEGUNDOS)
+# FUNÇÕES AUXILIARES DE TEMPO (apenas para tradução gaita)
 # ==========================================================
 def _build_tempo_map(mid):
     tempos = []
@@ -26,8 +26,7 @@ def _build_tempo_map(mid):
 def _tick_to_second(target_tick, tpb, tempo_map):
     sec = 0.0
     current_tick = 0
-    current_tempo = 500000 # Padrão: 120 BPM
-    
+    current_tempo = 500000
     for tempo_tick, tempo_val in tempo_map:
         if target_tick > tempo_tick:
             delta_ticks = tempo_tick - current_tick
@@ -36,60 +35,13 @@ def _tick_to_second(target_tick, tpb, tempo_map):
             current_tempo = tempo_val
         else:
             break
-            
     delta_ticks = target_tick - current_tick
     sec += mido.tick2second(delta_ticks, tpb, current_tempo)
     return sec
 
-def _track_para_tempo_absoluto(track):
-    eventos = []
-    tempo = 0
-    for msg in track:
-        tempo += msg.time
-        eventos.append((tempo, msg))
-    return eventos
-
-def _track_para_eventos_absolutos(track):
-    eventos = []
-    tempo_absoluto = 0
-    for msg in track:
-        tempo_absoluto += msg.time
-        if msg.type != "end_of_track":
-            eventos.append((tempo_absoluto, msg))
-    return eventos
-
-def _eventos_absolutos_para_track(eventos, duracao_total_ticks):
-    nova_track = mido.MidiTrack()
-    ultimo_tempo = 0
-    for tempo_absoluto, msg in sorted(eventos, key=lambda x: x[0]):
-        delta = tempo_absoluto - ultimo_tempo
-        nova_track.append(msg.copy(time=delta))
-        ultimo_tempo = tempo_absoluto
-
-    tempo_restante = duracao_total_ticks - ultimo_tempo
-    if tempo_restante < 0:
-        tempo_restante = 0
-    nova_track.append(mido.MetaMessage("end_of_track", time=tempo_restante))
-    return nova_track
-
-def _obter_duracao_total_ticks(mid):
-    maior_duracao = 0
-    for track in mid.tracks:
-        tempo_absoluto = 0
-        for msg in track:
-            tempo_absoluto += msg.time
-        maior_duracao = max(maior_duracao, tempo_absoluto)
-    return maior_duracao
-
-def _tempo_absoluto_para_track(eventos):
-    nova = mido.MidiTrack()
-    ultimo_tempo = 0
-    for tempo, msg in sorted(eventos, key=lambda x: x[0]):
-        delta = tempo - ultimo_tempo
-        nova.append(msg.copy(time=delta))
-        ultimo_tempo = tempo
-    return nova
-
+# ==========================================================
+# LISTAGEM DE PARTES (apenas tracks com notas)
+# ==========================================================
 def baixar_e_extrair_partes(caminho_completo: str):
     caminho_local = os.path.join(ARQUIVOS_PATH, caminho_completo)
     os.makedirs(os.path.dirname(caminho_local), exist_ok=True)
@@ -103,85 +55,49 @@ def baixar_e_extrair_partes(caminho_completo: str):
 
     mid = mido.MidiFile(caminho_local)
     partes = []
-    trilhas_com_notas = []
-
-    for track in mid.tracks:
+    for i, track in enumerate(mid.tracks):
         possui_notas = any(msg.type == "note_on" and msg.velocity > 0 for msg in track)
         if possui_notas:
-            trilhas_com_notas.append(track)
-
-    if len(trilhas_com_notas) > 1:
-        for i, track in enumerate(trilhas_com_notas):
-            nome = next((msg.name.strip() for msg in track if msg.type == "track_name" and msg.name.strip()), f"Trilha {i + 1}")
+            nome = next((msg.name.strip() for msg in track if msg.type == "track_name" and msg.name.strip()), f"Trilha {i}")
             partes.append({"id": f"track_{i}", "nome": nome})
-    else:
-        canais_encontrados = set()
-        for track in mid.tracks:
-            for msg in track:
-                if msg.type == "note_on" and msg.velocity > 0 and hasattr(msg, "channel"):
-                    canais_encontrados.add(msg.channel)
-        for canal in sorted(canais_encontrados):
-            partes.append({"id": f"channel_{canal}", "nome": f"Canal MIDI {canal + 1}"})
     return partes
 
+# ==========================================================
+# EXPORTAÇÃO DE MIDI LIMPO (COPIA DIRETA DAS TRACKS)
+# ==========================================================
 def exportar_filtro_midi(caminho_completo: str, partes_ids: list):
     caminho_origem = os.path.join(ARQUIVOS_PATH, caminho_completo)
     pasta_base = os.path.dirname(caminho_origem)
     nome_saida = f"temp_{'_'.join(partes_ids)}_{os.path.basename(caminho_completo)}"
     caminho_saida = os.path.join(pasta_base, nome_saida)
 
+    # Sem cache – apaga se existir
     if os.path.exists(caminho_saida):
-        return caminho_saida
+        os.remove(caminho_saida)
 
-    mid = mido.MidiFile(caminho_origem)
-    duracao_total_ticks = _obter_duracao_total_ticks(mid)
-    novo_mid = mido.MidiFile(type=mid.type, ticks_per_beat=mid.ticks_per_beat)
+    mid_original = mido.MidiFile(caminho_origem)
+    novo_mid = mido.MidiFile(type=1, ticks_per_beat=mid_original.ticks_per_beat)  # ← ALTERADO
 
-    trilhas_com_notas = [track for track in mid.tracks if any(msg.type == "note_on" and msg.velocity > 0 for msg in track)]
-    tracks_alvo_indices = [int(parte.split("_")[1]) for parte in partes_ids if parte.startswith("track_")]
-    canais_alvo = {int(parte.split("_")[1]) for parte in partes_ids if parte.startswith("channel_")}
+    # 1. Copia a primeira track original (meta‑eventos: andamento, compasso, etc.)
+    if mid_original.tracks:
+        nova_track0 = mido.MidiTrack()
+        for msg in mid_original.tracks[0]:
+            nova_track0.append(msg.copy())
+        novo_mid.tracks.append(nova_track0)
 
-    if tracks_alvo_indices:
-        for indice in tracks_alvo_indices:
-            if indice >= len(trilhas_com_notas):
-                continue
-            track_original = trilhas_com_notas[indice]
-            eventos = _track_para_eventos_absolutos(track_original)
-            nova_track = _eventos_absolutos_para_track(eventos, duracao_total_ticks)
-            novo_mid.tracks.append(nova_track)
-    elif canais_alvo:
-        eventos_filtrados = []
-        for track in mid.tracks:
-            eventos = _track_para_eventos_absolutos(track)
-            for tempo_absoluto, msg in eventos:
-                manter = False
-                if msg.is_meta: manter = True
-                elif not hasattr(msg, "channel"): manter = True
-                elif msg.channel in canais_alvo: manter = True
-                if manter:
-                    eventos_filtrados.append((tempo_absoluto, msg))
-        nova_track = _eventos_absolutos_para_track(eventos_filtrados, duracao_total_ticks)
-        novo_mid.tracks.append(nova_track)
+    # 2. Para cada parte selecionada, copia a track correspondente (sem meta‑eventos)
+    indices_tracks = {int(pid.split("_")[1]) for pid in partes_ids if pid.startswith("track_")}
 
-    if not novo_mid.tracks:
-        raise Exception("Nenhuma track ou canal válido foi encontrado.")
-
-    for track in novo_mid.tracks:
-        canais = set()
-        possui_program_change = set()
+    for idx in sorted(indices_tracks):
+        if idx >= len(mid_original.tracks):
+            continue
+        track = mid_original.tracks[idx]
+        nova_track = mido.MidiTrack()
         for msg in track:
-            if not hasattr(msg, "channel"): continue
-            canais.add(msg.channel)
-            if msg.type == "program_change":
-                possui_program_change.add(msg.channel)
-        canais_sem_program_change = (canais - possui_program_change)
-        if canais_sem_program_change:
-            indice_insercao = 0
-            while (indice_insercao < len(track) and track[indice_insercao].is_meta):
-                indice_insercao += 1
-            for canal in sorted(canais_sem_program_change):
-                track.insert(indice_insercao, mido.Message("program_change", channel=canal, program=0, time=0))
-                indice_insercao += 1
+            if msg.is_meta:   # remove meta‑eventos (já estão na track0)
+                continue
+            nova_track.append(msg.copy())
+        novo_mid.tracks.append(nova_track)
 
     novo_mid.save(caminho_saida)
     return caminho_saida
@@ -189,6 +105,10 @@ def exportar_filtro_midi(caminho_completo: str, partes_ids: list):
 def exportar_parte_para_midi(caminho_completo: str, parte_id: str):
     return exportar_filtro_midi(caminho_completo, [parte_id])
 
+
+# ==========================================================
+# TRADUÇÃO PARA TABLATURA (INALTERADA)
+# ==========================================================
 def nota_para_midi(nota_str):
     notas_base = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4, "F": 5, "F#": 6, "Gb": 6, "G": 7, "G#": 8, "Ab": 8, "A": 9, "A#": 10, "Bb": 10, "B": 11}
     match = re.match(r"([A-Ga-g][#b]?)(-?\d+)", nota_str)
@@ -203,7 +123,6 @@ def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo, overrides=No
 
     caminho_local = os.path.join(ARQUIVOS_PATH, caminho_completo)
     mid = mido.MidiFile(caminho_local)
-    
     tpb = mid.ticks_per_beat
     tempo_map = _build_tempo_map(mid)
 
@@ -230,11 +149,9 @@ def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo, overrides=No
                             "fim": _tick_to_second(abs_tick, tpb, tempo_map)
                         })
     else:
-        trilhas_com_notas = [track for track in mid.tracks if any(msg.type == "note_on" and msg.velocity > 0 for msg in track)]
-        if idx_alvo >= len(trilhas_com_notas):
+        if idx_alvo >= len(mid.tracks):
             raise Exception(f"Track {idx_alvo} não encontrada.")
-        
-        track = trilhas_com_notas[idx_alvo]
+        track = mid.tracks[idx_alvo]
         abs_tick = 0
         notas_abertas = {}
         for msg in track:
@@ -253,13 +170,16 @@ def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo, overrides=No
     if not eventos_musicais:
         return []
 
-    layout = supabase.table("layouts_gaita").select("id").eq("tom", tom).eq("tipo", tipo).single().execute()
-    if not layout.data:
-        raise Exception(f"Layout de gaita ({tom} {tipo}) não encontrado.")
+    layout_response = supabase.table("layouts_gaita").select("id").eq("tom", tom).eq("tipo", tipo).execute()
+    if not layout_response.data:
+        raise Exception(f"Layout de gaita ({tom} {tipo}) não encontrado no banco de dados.")
 
-    layout_id = layout.data["id"]
-    mapeamento = supabase.table("mapeamento_notas").select("nota_musical, comando_gaita").eq("layout_id", layout_id).execute()
-    mapa_gaita = {nota_para_midi(item["nota_musical"]): item["comando_gaita"] for item in mapeamento.data}
+    layout_id = layout_response.data[0]["id"]
+    mapeamento_response = supabase.table("mapeamento_notas").select("nota_musical, comando_gaita").eq("layout_id", layout_id).execute()
+    if not mapeamento_response.data:
+        raise Exception(f"Nenhum mapeamento de notas cadastrado para o layout ({tom} {tipo}).")
+
+    mapa_gaita = {nota_para_midi(item["nota_musical"]): item["comando_gaita"] for item in mapeamento_response.data}
     comandos_disponiveis = list(set(mapa_gaita.values()))
     notas_unicas = list(set(evento["nota_midi"] for evento in eventos_musicais))
     posicoes_validas = []
@@ -273,7 +193,6 @@ def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo, overrides=No
             nota_alvo = nota + offset
             if nota_alvo not in mapa_gaita and str(nota) not in overrides:
                 faltantes.append(nota)
-
         if not faltantes:
             comandos = []
             for indice, evento in enumerate(eventos_musicais):
@@ -298,13 +217,10 @@ def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo, overrides=No
 
     detalhes_faltantes = []
     for nota in notas_faltantes_do_melhor:
-        nota_alvo = nota + melhor_offset
-        nota_mais_proxima = min(mapa_gaita.keys(), key=lambda k: abs(k - nota_alvo))
-        comando_sugerido = mapa_gaita[nota_mais_proxima]
-        detalhes_faltantes.append({
-            "nota_midi_original": nota,
-            "sugestao_comando": comando_sugerido
-        })
+        nota_alvo = nota + (melhor_offset if melhor_offset is not None else 0)
+        nota_mais_proxima = min(mapa_gaita.keys(), key=lambda k: abs(k - nota_alvo)) if mapa_gaita else 0
+        comando_sugerido = mapa_gaita.get(nota_mais_proxima, "1")
+        detalhes_faltantes.append({"nota_midi_original": nota, "sugestao_comando": comando_sugerido})
 
     return {
         "status": "requer_ajuste",

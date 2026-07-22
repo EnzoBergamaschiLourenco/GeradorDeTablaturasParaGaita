@@ -39,11 +39,15 @@ export default function MontarTablatura() {
   const [modalAjusteAberto, setModalAjusteAberto] = useState(false);
   const [notasPendentes, setNotasPendentes] = useState([]);
   const [comandosDaGaita, setComandosDaGaita] = useState([]);
-  const [usuario, mapeamentoUsuario] = useState(null);
+  // CORREÇÃO: Separando o estado do usuário e o estado do mapeamento de notas
+  const [usuario, setUsuario] = useState(null);
+  const [mapeamentoUsuario, setMapeamentoUsuario] = useState({});
+
   useEffect(() => {
     const dadosSalvos = localStorage.getItem('usuarioLogado');
-    if (dadosSalvos) mapeamentoUsuario(JSON.parse(dadosSalvos));
+    if (dadosSalvos) setUsuario(JSON.parse(dadosSalvos)); // Usando setUsuario corretamente
   }, []);
+
   const [parteEmAjuste, setParteEmAjuste] = useState(null);
 
   const [linhasLetra, setLinhasLetra] = useState([]);
@@ -74,24 +78,6 @@ export default function MontarTablatura() {
     if (!usuario) {
       alert("Usuário não autenticado.");
       return;
-      if (!insertError) {
-        // 2. Garanta que o midiSelecionado.id existe antes de tentar salvar
-        if (midiSelecionado?.id) {
-          const { error: ratingError } = await supabase
-            .from('avaliacoes_midi')
-            .insert({
-              usuario_id: usuario.id, // Certifique-se de que usuario.id existe aqui
-              midi_id: midiSelecionado.id,
-              nota: notaAvaliacao
-            });
-
-          if (ratingError) {
-            console.error("Erro ao salvar a avaliação:", ratingError);
-            alert("Tablatura salva, mas erro ao registrar avaliação.");
-          }
-        }
-        navigate('/');
-      }
     }
 
     // Buscar o ID do layout da gaita (tom + tipo)
@@ -230,6 +216,12 @@ export default function MontarTablatura() {
       });
 
       const resData = await response.json();
+
+      // NOVA VALIDAÇÃO: Se o Python retornou erro (ex: 500 Internal Server Error)
+      if (!response.ok) {
+        throw new Error(resData.detail || resData.error || `Erro do servidor: ${response.status}`);
+      }
+
       const data = resData.posicoes;
 
       if (data && data.status === "requer_ajuste") {
@@ -259,7 +251,9 @@ export default function MontarTablatura() {
         setIsTraduzindo(false);
       }
     } catch (err) {
-      console.error("Falha de conexão com a API na tradução.");
+      console.error("Erro interno no JS ou na Requisição:", err);
+      // Agora o alert mostrará exatamente o motivo da falha (ex: Layout não encontrado)
+      alert(`Falha na tradução da parte ${parteEncontrada.nome}: \n${err.message}`);
       setFilaTraducao(prev => prev.slice(1));
       setIsTraduzindo(false);
     }
@@ -398,6 +392,11 @@ export default function MontarTablatura() {
 
   // ================= RENDERIZAÇÃO =================
   if (mostrarPreview) {
+    // Coloque isso logo antes do 'return' do componente
+    console.log("[STATE DEBUG] Notas por Parte:", notasPorParte);
+    console.log("[STATE DEBUG] Oitavas Disponíveis:", dadosOitavas);
+    console.log("[STATE DEBUG] Linhas da Letra (Tablatura Final):", linhasLetra);
+
     return (
       <div style={s.pageStyle}>
         <div style={{ ...s.mainCard, maxWidth: '800px', textAlign: 'center' }}>
