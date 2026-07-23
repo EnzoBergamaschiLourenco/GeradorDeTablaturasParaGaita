@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import * as mm from '@magenta/music';
 import * as s from '../styles/MontarTablaturaStyles';
@@ -9,6 +9,7 @@ import { supabase } from '../supabaseClient';
 export default function MontarTablatura() {
 
   const [notaAvaliacao, setNotaAvaliacao] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -39,13 +40,12 @@ export default function MontarTablatura() {
   const [modalAjusteAberto, setModalAjusteAberto] = useState(false);
   const [notasPendentes, setNotasPendentes] = useState([]);
   const [comandosDaGaita, setComandosDaGaita] = useState([]);
-  // CORREÇÃO: Separando o estado do usuário e o estado do mapeamento de notas
   const [usuario, setUsuario] = useState(null);
   const [mapeamentoUsuario, setMapeamentoUsuario] = useState({});
 
   useEffect(() => {
     const dadosSalvos = localStorage.getItem('usuarioLogado');
-    if (dadosSalvos) setUsuario(JSON.parse(dadosSalvos)); // Usando setUsuario corretamente
+    if (dadosSalvos) setUsuario(JSON.parse(dadosSalvos));
   }, []);
 
   const [parteEmAjuste, setParteEmAjuste] = useState(null);
@@ -57,73 +57,132 @@ export default function MontarTablatura() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => setUser(user));
   }, []);
+
   const [textoTablatura, setTextoTablatura] = useState('');
-  // Geração do texto da tablatura combinando comandos + letra
+
+  const {
+    togglePlayAll, stop, seek, duration, isPlaying, playingId, tempoAtual, alterarVolume, volumes, changeSpeed, playbackSpeed = {}
+  } = useMidiPlayer();
+
+  // Pausa o player automaticamente quando entra em carregamento
+  useEffect(() => {
+    if (isLoading) {
+      stop();
+    }
+  }, [isLoading, stop]);
+
+  // ---------- BARRA DE PROGRESSO SUAVE (resolve bug após pausa/retomada) ----------
+  const [progressoVisual, setProgressoVisual] = useState(0);
+  const tempoAtualRef = useRef(0);      // último tempo real conhecido do hook
+  const lastTimestampRef = useRef(0);   // performance.now() do último update
+  const animFrameRef = useRef(null);
+
+  // Sincroniza os refs sempre que o hook atualizar o tempo
+  useEffect(() => {
+    if (typeof tempoAtual === 'number' && !isNaN(tempoAtual)) {
+      tempoAtualRef.current = tempoAtual;
+      lastTimestampRef.current = performance.now();
+      // Atualiza visual imediatamente para não perder precisão na pausa
+      setProgressoVisual(duration > 0 ? (tempoAtual / duration) * 100 : 0);
+    }
+  }, [tempoAtual, duration]);
+
+  // Loop de animação durante a reprodução
+  useEffect(() => {
+    if (isPlaying && playingId === 'ALL' && duration > 0) {
+      const tick = () => {
+        const now = performance.now();
+        const deltaSec = (now - lastTimestampRef.current) / 1000;
+        const tempoEstimado = Math.min(tempoAtualRef.current + deltaSec, duration);
+        setProgressoVisual((tempoEstimado / duration) * 100);
+        animFrameRef.current = requestAnimationFrame(tick);
+      };
+      animFrameRef.current = requestAnimationFrame(tick);
+    } else {
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+    }
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
+  }, [isPlaying, playingId, duration]);
+
+  // Geração do texto da tablatura
   useEffect(() => {
     if (mostrarPreview) {
       const texto = linhasLetra
         .map(linha => {
           const comandos = linha.notas.map(n => n.valor).join(' ');
-          const letra = linha.texto || '';   // mantém vazia se for linha vazia
-          // Se não houver comandos nem letra, retorna string vazia (evita linhas em branco)
+          const letra = linha.texto || '';
           if (!comandos && !letra) return '';
           return `${comandos}\n${letra}`;
         })
-        .filter(line => line !== '')   // remove totalmente vazias
+        .filter(line => line !== '')
         .join('\n');
       setTextoTablatura(texto);
     }
   }, [mostrarPreview, linhasLetra]);
+
   const handleSaveTablatura = async () => {
     if (!usuario) {
       alert("Usuário não autenticado.");
       return;
     }
 
-    // Buscar o ID do layout da gaita (tom + tipo)
-    const { data: layout, error: layoutError } = await supabase
-      .from('layouts_gaita')
-      .select('id')
-      .eq('tipo', tipoGaita)
-      .eq('tom', tomGaita)
-      .single();
+    setIsLoading(true);
+    try {
+      const { data: layout, error: layoutError } = await supabase
+        .from('layouts_gaita')
+        .select('id')
+        .eq('tipo', tipoGaita)
+        .eq('tom', tomGaita)
+        .single();
 
-    if (layoutError || !layout) {
-      alert("Erro ao encontrar o layout da gaita. Verifique se o tom e tipo são válidos.");
-      return;
-    }
-
-    const dataAtual = new Date().toISOString().split('T')[0];
-
-    const { error: insertError } = await supabase
-      .from('tablaturas')
-      .insert({
-        tablatura: textoTablatura,
-        data: dataAtual,
-        usuario_id: usuario.id,
-        midi_id: midiSelecionado?.id,
-        musica_id: musicaId,
-        gaita_id: layout.id
-      });
-
-    if (insertError) {
-      console.error(insertError);
-      alert("Erro ao salvar tablatura.");
-    } else {
-      if (midiSelecionado?.id) {
-        const { error: ratingError } = await supabase
-          .from('avaliacoes_midi')
-          .insert({
-            usuario_id: usuario.id,
-            midi_id: midiSelecionado.id,
-            nota: notaAvaliacao
-          });
-
-        if (ratingError) {
-          console.error("Erro ao salvar a avaliação do MIDI:", ratingError);
-        }
+      if (layoutError || !layout) {
+        alert("Erro ao encontrar o layout da gaita. Verifique se o tom e tipo são válidos.");
+        setIsLoading(false);
+        return;
       }
-      navigate('/');
+
+      const dataAtual = new Date().toISOString().split('T')[0];
+
+      const { error: insertError } = await supabase
+        .from('tablaturas')
+        .insert({
+          tablatura: textoTablatura,
+          data: dataAtual,
+          usuario_id: usuario.id,
+          midi_id: midiSelecionado?.id,
+          musica_id: musicaId,
+          gaita_id: layout.id
+        });
+
+      if (insertError) {
+        console.error(insertError);
+        alert("Erro ao salvar tablatura.");
+      } else {
+        if (midiSelecionado?.id) {
+          const { error: ratingError } = await supabase
+            .from('avaliacoes_midi')
+            .insert({
+              usuario_id: usuario.id,
+              midi_id: midiSelecionado.id,
+              nota: notaAvaliacao
+            });
+
+          if (ratingError) {
+            console.error("Erro ao salvar a avaliação do MIDI:", ratingError);
+          }
+        }
+        navigate('/');
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erro inesperado ao salvar.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -132,23 +191,14 @@ export default function MontarTablatura() {
     setCardsExpandidos(prev => ({ ...prev, [parteId]: !prev[parteId] }));
   };
 
-  const {
-    togglePlayAll, stop, seek, progress, duration, isPlaying, playingId, tempoAtual, alterarVolume, volumes, changeSpeed, playbackSpeed = {}
-  } = useMidiPlayer();
-
   useEffect(() => {
     console.log("Tempo atual recebido no componente:", tempoAtual);
   }, [tempoAtual]);
 
   const notaEstaTocando = (nota, tempo) => {
     if (!nota) return false;
-
-    // O tempo aqui já é o musical absoluto. Não multiplique!
     const start = nota.startTime ?? nota.inicio;
     const end = nota.endTime ?? nota.fim;
-
-    // Use uma tolerância mínima (0.1s) para evitar que a nota "pisque" 
-    // se o render do React for um pouco mais lento que o áudio
     return tempo >= (start - 0.05) && tempo < (end + 0.05);
   };
 
@@ -158,7 +208,7 @@ export default function MontarTablatura() {
     return dados.some(nota => notaEstaTocando(nota, tempoAtual));
   };
 
-  // Coleta todas as notas que já estão posicionadas em linhas da letra
+  // Notas já alocadas nas linhas da letra
   const notasAlocadasSet = new Set();
   linhasLetra.forEach(linha => {
     linha.notas.forEach(nota => {
@@ -171,6 +221,7 @@ export default function MontarTablatura() {
       setLinhasLetra(letra.split('\n').map((texto, index) => ({ id: `linha-${index}`, texto: texto, notas: [] })));
     }
     if (midiSelecionado) {
+      setIsLoading(true);
       fetch(`http://127.0.0.1:8000/midi/partes/${midiSelecionado.path}`)
         .then(res => res.json())
         .then(data => {
@@ -178,7 +229,8 @@ export default function MontarTablatura() {
           setPartesAdicionadas(data.partes);
           setFilaTraducao([...data.partes]);
         })
-        .catch(err => console.error("Erro ao buscar partes:", err));
+        .catch(err => console.error("Erro ao buscar partes:", err))
+        .finally(() => setIsLoading(false));
     }
   }, [letra, midiSelecionado, musicaId]);
 
@@ -201,6 +253,7 @@ export default function MontarTablatura() {
 
   const traduzirParteFila = async (parteEncontrada, overrides = null) => {
     setIsTraduzindo(true);
+    setIsLoading(true);
     try {
       const response = await fetch(`http://127.0.0.1:8000/midi/traduzir`, {
         method: 'POST',
@@ -217,7 +270,6 @@ export default function MontarTablatura() {
 
       const resData = await response.json();
 
-      // NOVA VALIDAÇÃO: Se o Python retornou erro (ex: 500 Internal Server Error)
       if (!response.ok) {
         throw new Error(resData.detail || resData.error || `Erro do servidor: ${response.status}`);
       }
@@ -234,6 +286,7 @@ export default function MontarTablatura() {
         setMapeamentoUsuario(mapInicial);
         setModalAjusteAberto(true);
         setIsTraduzindo(false);
+        setIsLoading(false);
       }
       else if (Array.isArray(data) && data.length > 0) {
         setModalAjusteAberto(false);
@@ -245,17 +298,19 @@ export default function MontarTablatura() {
 
         setFilaTraducao(prev => prev.slice(1));
         setIsTraduzindo(false);
+        setIsLoading(false);
       }
       else {
         setFilaTraducao(prev => prev.slice(1));
         setIsTraduzindo(false);
+        setIsLoading(false);
       }
     } catch (err) {
       console.error("Erro interno no JS ou na Requisição:", err);
-      // Agora o alert mostrará exatamente o motivo da falha (ex: Layout não encontrado)
       alert(`Falha na tradução da parte ${parteEncontrada.nome}: \n${err.message}`);
       setFilaTraducao(prev => prev.slice(1));
       setIsTraduzindo(false);
+      setIsLoading(false);
     }
   };
 
@@ -283,6 +338,8 @@ export default function MontarTablatura() {
   };
 
   const handleSeekClick = (e, idClicado) => {
+    // Barra de progresso habilitada apenas quando pausado
+    if (isPlaying) return;
     if (playingId !== idClicado) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
@@ -292,29 +349,22 @@ export default function MontarTablatura() {
 
   // ================= SELEÇÃO & DRAG AND DROP =================
   const handleNotaClick = (e, parteId, nota, index) => {
-    // Evita selecionar notas que já estão na letra
     if (notasAlocadasSet.has(nota.id)) return;
-
-    // Evitar selecionar o texto acidentalmente com o shift
     if (e.shiftKey) e.preventDefault();
 
     if (e.ctrlKey || e.metaKey) {
-      // Toggle
       setNotasSelecionadas(prev => {
         if (prev.includes(nota.id)) return prev.filter(id => id !== nota.id);
         return [...prev, nota.id];
       });
       setUltimaNotaClicada({ parteId, index });
     } else if (e.shiftKey && ultimaNotaClicada && ultimaNotaClicada.parteId === parteId) {
-      // Seleção em massa (Range)
       const start = Math.min(ultimaNotaClicada.index, index);
       const end = Math.max(ultimaNotaClicada.index, index);
       const rangeIds = notasPorParte[parteId].slice(start, end + 1).map(n => n.id);
-
       const newSet = new Set([...notasSelecionadas, ...rangeIds]);
       setNotasSelecionadas(Array.from(newSet));
     } else {
-      // Seleção Simples
       setNotasSelecionadas([nota.id]);
       setUltimaNotaClicada({ parteId, index });
     }
@@ -322,8 +372,6 @@ export default function MontarTablatura() {
 
   const handleDragStart = (e, nota) => {
     let idsToDrag = notasSelecionadas;
-    // Se a pessoa arrastar uma nota que não está na seleção, 
-    // desconsideramos a seleção anterior e arrastamos apenas ela.
     if (!idsToDrag.includes(nota.id)) {
       idsToDrag = [nota.id];
       setNotasSelecionadas([nota.id]);
@@ -341,7 +389,6 @@ export default function MontarTablatura() {
 
     const notasParaAdicionar = [];
 
-    // Percorre os arrays na ordem para manter a sequência exata de como as notas aparecem
     Object.keys(notasPorParte).forEach(chave => {
       notasPorParte[chave].forEach(n => {
         if (notasIds.includes(n.id) && !notasAlocadasSet.has(n.id)) {
@@ -359,7 +406,6 @@ export default function MontarTablatura() {
         };
         return novasLinhas;
       });
-      // Limpa a seleção após alocar
       setNotasSelecionadas([]);
     }
   };
@@ -392,29 +438,28 @@ export default function MontarTablatura() {
 
   // ================= RENDERIZAÇÃO =================
   if (mostrarPreview) {
-    // Coloque isso logo antes do 'return' do componente
-    console.log("[STATE DEBUG] Notas por Parte:", notasPorParte);
-    console.log("[STATE DEBUG] Oitavas Disponíveis:", dadosOitavas);
-    console.log("[STATE DEBUG] Linhas da Letra (Tablatura Final):", linhasLetra);
-
     return (
       <div style={s.pageStyle}>
+        {isLoading && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+            backgroundColor: 'rgba(128, 128, 128, 0.5)', display: 'flex',
+            justifyContent: 'center', alignItems: 'center', zIndex: 9999
+          }}>
+            <div style={{ backgroundColor: 'white', padding: '20px 40px', borderRadius: '8px', fontSize: '18px', color: '#333' }}>
+              Carregando...
+            </div>
+          </div>
+        )}
         <div style={{ ...s.mainCard, maxWidth: '800px', textAlign: 'center' }}>
           <h2 style={{ color: '#007bff', marginBottom: 5 }}>{nome}</h2>
           <p style={{ color: '#666', marginBottom: 30 }}>{autor}</p>
 
-          {/* CARD DO MIDI COM EXIBIÇÃO E AVALIAÇÃO POR ESTRELAS */}
           {midiSelecionado && (
             <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              backgroundColor: '#f8fafc',
-              border: '1px solid #e2e8f0',
-              borderRadius: '14px',
-              padding: '15px',
-              boxSizing: 'border-box',
-              marginBottom: '25px',
-              textAlign: 'left'
+              display: 'flex', alignItems: 'center', backgroundColor: '#f8fafc',
+              border: '1px solid #e2e8f0', borderRadius: '14px', padding: '15px',
+              boxSizing: 'border-box', marginBottom: '25px', textAlign: 'left'
             }}>
               <div style={{ width: 42, height: 42, backgroundColor: '#e8f0fe', color: '#1a73e8', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRadius: '10px', fontSize: '18px' }}>
                 🎵
@@ -426,19 +471,14 @@ export default function MontarTablatura() {
                 <small style={{ color: '#666', fontSize: 12, display: 'block', marginBottom: '6px' }}>
                   Avalie este arquivo MIDI:
                 </small>
-                {/* Sistema de 5 estrelas clicáveis */}
                 <div style={{ display: 'flex', gap: '5px' }}>
                   {[1, 2, 3, 4, 5].map((star) => (
-                    <span
-                      key={star}
-                      onClick={() => setNotaAvaliacao(star)}
+                    <span key={star} onClick={() => setNotaAvaliacao(star)}
                       style={{
-                        cursor: 'pointer',
-                        fontSize: '26px',
+                        cursor: 'pointer', fontSize: '26px',
                         color: star <= notaAvaliacao ? '#ffc107' : '#cbd5e1',
                         transition: 'color 0.1s'
-                      }}
-                    >
+                      }}>
                       ★
                     </span>
                   ))}
@@ -450,19 +490,11 @@ export default function MontarTablatura() {
           <div style={{ display: 'flex', gap: '15px', marginBottom: 20, justifyContent: 'center' }}>
             <div>
               <label style={s.labelStyle}>Tom da Gaita</label>
-              <input
-                value={tomGaita}
-                onChange={e => setTomGaita(e.target.value)}
-                style={s.inputStyle}
-              />
+              <input value={tomGaita} onChange={e => setTomGaita(e.target.value)} style={s.inputStyle} />
             </div>
             <div>
               <label style={s.labelStyle}>Tipo de Gaita</label>
-              <input
-                value={tipoGaita}
-                onChange={e => setTipoGaita(e.target.value)}
-                style={s.inputStyle}
-              />
+              <input value={tipoGaita} onChange={e => setTipoGaita(e.target.value)} style={s.inputStyle} />
             </div>
           </div>
 
@@ -470,23 +502,14 @@ export default function MontarTablatura() {
             value={textoTablatura}
             onChange={e => setTextoTablatura(e.target.value)}
             style={{
-              width: '100%',
-              height: '300px',
-              fontFamily: 'monospace',
-              fontSize: '16px',
-              padding: '12px',
-              borderRadius: '8px',
-              border: '1px solid #cbd5e1'
+              width: '100%', height: '300px', fontFamily: 'monospace', fontSize: '16px',
+              padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1'
             }}
           />
 
           <div style={{ display: 'flex', gap: '15px', marginTop: '30px', justifyContent: 'center' }}>
-            <button style={s.btnSecondary} onClick={() => setMostrarPreview(false)}>
-              Voltar para Edição
-            </button>
-            <button style={s.btnPrimary} onClick={handleSaveTablatura}>
-              Salvar Tablatura
-            </button>
+            <button style={s.btnSecondary} onClick={() => setMostrarPreview(false)}>Voltar para Edição</button>
+            <button style={s.btnPrimary} onClick={handleSaveTablatura}>Salvar Tablatura</button>
           </div>
         </div>
       </div>
@@ -495,21 +518,26 @@ export default function MontarTablatura() {
 
   return (
     <div style={s.pageStyle}>
-      <div style={s.contentWrapper}>
+      {isLoading && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+          backgroundColor: 'rgba(128, 128, 128, 0.5)', display: 'flex',
+          justifyContent: 'center', alignItems: 'center', zIndex: 9999
+        }}>
+          <div style={{ backgroundColor: 'white', padding: '20px 40px', borderRadius: '8px', fontSize: '18px', color: '#333' }}>
+            Carregando...
+          </div>
+        </div>
+      )}
 
+      <div style={s.contentWrapper}>
         {/* COLUNA ESQUERDA */}
         <div style={{ ...s.columnBox, flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
             <h3 style={{ color: '#007bff', fontSize: '18px', fontWeight: 'bold', margin: 0 }}>
               Configurações da Gaita
             </h3>
-            <button
-              onClick={recarregarTraducoes}
-              style={s.btnRecarregar}
-              title="Recarregar e Traduzir Novamente"
-            >
-              ↻
-            </button>
+            <button onClick={recarregarTraducoes} style={s.btnRecarregar} title="Recarregar e Traduzir Novamente">↻</button>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '25px' }}>
@@ -533,7 +561,6 @@ export default function MontarTablatura() {
                   <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#4a5568' }}>Partes Ativas:</span>
                 </div>
 
-                {/* CARDS INDIVIDUAIS */}
                 {partesAdicionadas.map(parte => {
                   const oitavaInfo = dadosOitavas[parte.id];
                   const cardExpandido = cardsExpandidos[parte.id] === true;
@@ -541,13 +568,8 @@ export default function MontarTablatura() {
 
                   return (
                     <div key={parte.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-                      <div
-                        onClick={() => alternarExpansaoParte(parte.id)}
-                        style={{
-                          ...s.cardParteStyle,
-                          ...(cardEstaTocando ? s.cardParteTocandoStyle : {})
-                        }}
-                      >
+                      <div onClick={() => alternarExpansaoParte(parte.id)}
+                        style={{ ...s.cardParteStyle, ...(cardEstaTocando ? s.cardParteTocandoStyle : {}) }}>
                         <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <span style={s.cardParteNome}>
@@ -578,17 +600,17 @@ export default function MontarTablatura() {
                               max="1"
                               step="0.01"
                               value={volumes[parte.id] ?? 1}
+                              disabled={isPlaying}
                               onChange={e => {
                                 const novoVolume = parseFloat(e.target.value);
                                 alterarVolume(parte.id, novoVolume);
                               }}
-                              style={{ width: '100%', cursor: 'pointer' }}
+                              style={{ width: '100%', cursor: isPlaying ? 'default' : 'pointer' }}
                             />
                           </div>
                         </div>
                       </div>
 
-                      {/* CONTEÚDO EXPANDIDO */}
                       {cardExpandido && (
                         <div style={s.notasCardInternoContainer}>
                           {!notasPorParte[parte.id] ? (
@@ -642,41 +664,31 @@ export default function MontarTablatura() {
 
         {/* COLUNA DIREITA (Sticky com Scroll Interno) */}
         <div style={{
-          ...s.columnBox,
-          flex: 1.2,
-          position: 'sticky',
-          top: '30px',
-          height: 'calc(100vh - 60px)', // Faz a coluna ter o tamanho exato da tela disponível
-          display: 'flex',
-          flexDirection: 'column',
-          paddingBottom: '25px'
+          ...s.columnBox, flex: 1.2, position: 'sticky', top: '30px',
+          height: 'calc(100vh - 60px)', display: 'flex', flexDirection: 'column', paddingBottom: '25px'
         }}>
-          {/* Header fixo da coluna direita com Título + Player */}
           <div style={{
-            marginBottom: '20px',
-            borderBottom: '1px solid #e2e8f0',
-            paddingBottom: '15px',
-            flexShrink: 0,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: '20px'
+            marginBottom: '20px', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px',
+            flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px'
           }}>
             <div style={{ flex: 1 }}>
               <h2 style={{ color: '#333', margin: 0, fontSize: '24px' }}>{nome}</h2>
               <span style={{ color: '#666' }}>{autor}</span>
             </div>
 
-            {/* BOTÃO DE VELOCIDADE */}
             <div className="controles-player">
-              <select style={s.inputStyle} onChange={(e) => changeSpeed(parseFloat(e.target.value))} value={playbackSpeed}>
+              <select
+                style={s.inputStyle}
+                onChange={(e) => changeSpeed(parseFloat(e.target.value))}
+                value={playbackSpeed}
+                disabled={!isPlaying}
+              >
                 <option value={1}>1x</option>
                 <option value={0.5}>0.5x</option>
                 <option value={0.25}>0.25x</option>
               </select>
             </div>
 
-            {/* PLAYER MOVIDO PARA A DIREITA */}
             {partesAdicionadas.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', minWidth: '220px' }}>
                 <button
@@ -691,19 +703,20 @@ export default function MontarTablatura() {
                 </button>
                 {playingId === 'ALL' && (
                   <div
-                    style={s.barraFundo}
+                    style={{
+                      ...s.barraFundo,
+                      pointerEvents: isPlaying ? 'none' : 'auto',
+                      cursor: isPlaying ? 'default' : 'pointer'
+                    }}
                     onClick={(e) => handleSeekClick(e, 'ALL')}
                   >
-                    <div
-                      style={{ ...s.barraProgresso, width: `${progress}%` }}
-                    />
+                    <div style={{ ...s.barraProgresso, width: `${progressoVisual}%` }} />
                   </div>
                 )}
               </div>
             )}
           </div>
 
-          {/* Área scrollável das letras */}
           <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', paddingBottom: '30px' }}>
               {linhasLetra.map((linha, index) => (
@@ -723,7 +736,6 @@ export default function MontarTablatura() {
             </div>
           </div>
 
-          {/* Botão Fixo no fundo da coluna da direita */}
           <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end', paddingTop: '15px', backgroundColor: 'white' }}>
             <button style={{ ...s.btnContinuar, position: 'relative', bottom: 'auto', right: 'auto' }} onClick={() => setMostrarPreview(true)}>
               Continuar ➔
@@ -732,7 +744,6 @@ export default function MontarTablatura() {
         </div>
       </div>
 
-      {/* --- MODAL DE AJUSTE DE NOTAS --- */}
       {modalAjusteAberto && (
         <div style={s.modalOverlay}>
           <div style={s.modalContent}>

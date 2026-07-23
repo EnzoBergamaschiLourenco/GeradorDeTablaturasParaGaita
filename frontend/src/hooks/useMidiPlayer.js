@@ -30,6 +30,9 @@ export function useMidiPlayer() {
   const playbackClockStartRef = useRef(0);
   const playbackClockSequenceStartRef = useRef(0);
 
+  // NOVA REF: Armazena a velocidade para o loop de animação ler o valor atualizado
+  const playbackSpeedRef = useRef(1);
+
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playingId, setPlayingId] = useState(null);
@@ -78,20 +81,7 @@ export function useMidiPlayer() {
     for (const parteId of partesIds) {
       const url = `http://127.0.0.1:8000/midi/play/${midiPath}?partes=${parteId}&_t=${Date.now()}`;
       const seq = await mm.urlToNoteSequence(url);
-      const notasReais = seq.notes
-        .filter(n => n.velocity > 0)
-        .sort((a, b) => a.startTime - b.startTime);
 
-      console.log(
-        "[MAGENTA PRIMEIRAS NOTAS]",
-        notasReais.slice(0, 20).map(n => ({
-          pitch: n.pitch,
-          start: n.startTime,
-          end: n.endTime,
-          instrument: n.instrument,
-          velocity: n.velocity,
-        }))
-      );
       if (!seq || !seq.notes || seq.notes.length === 0) continue;
       if (!firstSeq || (firstSeq.tempos?.length === 0 && seq.tempos?.length > 0)) {
         firstSeq = seq;
@@ -104,7 +94,6 @@ export function useMidiPlayer() {
         combinedNotes.push({
           ...note,
           instrument: instrumentNum,
-          // CORREÇÃO: O teto de volume (velocity) na escala MIDI deve ser 127 e arredondado para um inteiro
           velocity: Math.min(127, Math.max(0, Math.floor(note.velocity * volumeMultiplier * volumeMultiplier))),
         });
       });
@@ -115,7 +104,6 @@ export function useMidiPlayer() {
       throw new Error('Nenhuma parte possui notas.');
     }
 
-    // Nota fantasma utilizada exclusivamente para sincronizar
     const ghostNote = {
       pitch: 0,
       startTime: 0,
@@ -147,7 +135,6 @@ export function useMidiPlayer() {
     setDuration(combinedSequence.totalTime);
     baseTempoRef.current = combinedSequence.tempos?.[0]?.qpm || 120;
 
-    console.log("[AUDIO DEBUG] Sequência combinada final:", combinedSequence);
     return combinedSequence;
   };
 
@@ -167,9 +154,10 @@ export function useMidiPlayer() {
       audioCtxRef.current.currentTime -
       playbackClockStartRef.current;
 
+    // AQUI: Usando a ref para garantir a leitura do valor mais recente de velocidade
     const currentTime =
       playbackClockSequenceStartRef.current +
-      (elapsedAudioTime * playbackSpeed);
+      (elapsedAudioTime * playbackSpeedRef.current);
 
     const clampedTime = Math.min(
       currentTime,
@@ -190,52 +178,26 @@ export function useMidiPlayer() {
       );
     }
 
-    animationFrameRef.current =
-      requestAnimationFrame(updatePlaybackClock);
+    animationFrameRef.current = requestAnimationFrame(updatePlaybackClock);
   };
 
   const startPlaybackClock = (sequenceStartTime = 0) => {
     stopPlaybackClock();
-
-    playbackClockStartRef.current =
-      audioCtxRef.current.currentTime;
-
-    playbackClockSequenceStartRef.current =
-      sequenceStartTime;
-
-    animationFrameRef.current =
-      requestAnimationFrame(updatePlaybackClock);
+    playbackClockStartRef.current = audioCtxRef.current.currentTime;
+    playbackClockSequenceStartRef.current = sequenceStartTime;
+    animationFrameRef.current = requestAnimationFrame(updatePlaybackClock);
   };
-  // ────────────────────────────
-  //  CRIAÇÃO DO PLAYER (CORRIGIDA)
-  // ────────────────────────────
+
   const setupPlayer = () => {
     getAudioContext();
     if (playerRef.current) {
       try { playerRef.current.stop(); } catch { }
     }
 
-    // O SEGREDO ESTÁ AQUI: O callback 'run' fornece o tempo perfeitamente sincronizado.
-    // 'false' significa que o Magenta não vai tentar gerenciar o contexto de áudio sozinho.
     playerRef.current = new mm.Player(false, {
       run: (note) => {
-        if (
-          note &&
-          typeof note.startTime === 'number'
-        ) {
-          setTempoAtual(note.startTime);
-          if (totalDurationRef.current > 0) {
-            setProgress(
-              Math.min(
-                100,
-                Math.max(
-                  0,
-                  (note.startTime / totalDurationRef.current) * 100
-                )
-              )
-            );
-          }
-        }
+        // AQUI: Esvaziamos essa função para evitar conflitos.
+        // O requestAnimationFrame agora é o único responsável pelo estado tempoAtual.
       },
       stop: () => {
         setIsPlaying(false);
@@ -243,12 +205,9 @@ export function useMidiPlayer() {
       }
     });
 
-    if (playerRef.current.synth) {
-      playerRef.current.synth.maxPolyphony = 512;
-    }
     const baseTempo = sequenceRef.current?.tempos?.[0]?.qpm || 120;
     baseTempoRef.current = baseTempo;
-    playerRef.current.setTempo(baseTempo * playbackSpeed);
+    playerRef.current.setTempo(baseTempo * playbackSpeedRef.current);
   };
 
   const stopAll = () => {
@@ -270,21 +229,34 @@ export function useMidiPlayer() {
     }
   };
 
-  const pauseAll = () => {
-    stopPlaybackClock();
-    if (playerRef.current) {
-      try {
-        // Salvamos o último tempo atualizado pelo 'run'
-        pausedTimeRef.current = tempoAtual;
-        playerRef.current.pause();
-      } catch (e) {
-        console.error("Erro ao pausar:", e);
-        pausedTimeRef.current = tempoAtual;
+const pauseAll = () => {
+  stopPlaybackClock();
+  changeSpeed(parseFloat(1));
+  if (playerRef.current) {
+    try {
+      // Calcula o tempo REAL da sequência, usando as mesmas refs do relógio
+      let currentTime = 0;
+      if (audioCtxRef.current && playbackClockStartRef.current) {
+        const elapsedAudio =
+          audioCtxRef.current.currentTime - playbackClockStartRef.current;
+        currentTime =
+          playbackClockSequenceStartRef.current +
+          elapsedAudio * playbackSpeedRef.current;
+      } else {
+        // fallback seguro (nunca deveria ser usado, mas evita 0)
+        currentTime = tempoAtual;
       }
+      pausedTimeRef.current = currentTime;
+      playerRef.current.pause();
+      
+    } catch (e) {
+      console.error("Erro ao pausar:", e);
+      pausedTimeRef.current = tempoAtual;
     }
-    isPlayingRef.current = false;
-    setIsPlaying(false);
-  };
+  }
+  isPlayingRef.current = false;
+  setIsPlaying(false);
+};
 
   const resumeAll = () => {
     const seekTime = pausedTimeRef.current;
@@ -295,6 +267,10 @@ export function useMidiPlayer() {
     try {
       playerRef.current.seekTo(seekTime);
       playerRef.current.resume();
+
+      // Força a velocidade logo após retomar do pause
+      playerRef.current.setTempo(baseTempoRef.current * playbackSpeedRef.current);
+
     } catch (e) {
       console.warn('Falha ao retomar, recriando player');
       playerRef.current.stop();
@@ -316,12 +292,14 @@ export function useMidiPlayer() {
       const combinedSequence = await loadCombinedSequence(partesIds, midiPath);
       setupPlayer();
 
-      console.log(combinedSequence.notes[0]);
+      // Inicia a música com parâmetro 'undefined' para qpm e força via setTempo em seguida
       playerRef.current.start(combinedSequence, undefined, startTime)
         .catch(err => {
           console.error('Erro no player.start:', err);
           stopAll();
         });
+
+      playerRef.current.setTempo(baseTempoRef.current * playbackSpeedRef.current);
 
       isPlayingRef.current = true;
       playingIdRef.current = 'ALL';
@@ -342,6 +320,7 @@ export function useMidiPlayer() {
     if (isPlayingRef.current && playerRef.current) {
       try {
         playerRef.current.seekTo(targetTime);
+        playerRef.current.setTempo(baseTempoRef.current * playbackSpeedRef.current);
       } catch (e) {
         console.warn('seekTo falhou, recriando player');
         recreatePlayerAtTime(targetTime, true);
@@ -353,6 +332,10 @@ export function useMidiPlayer() {
 
     setTempoAtual(targetTime);
     setProgress(percent);
+
+    if (isPlayingRef.current) {
+      startPlaybackClock(targetTime);
+    }
   };
 
   const recreatePlayerAtTime = async (targetTime, shouldPlay) => {
@@ -369,10 +352,13 @@ export function useMidiPlayer() {
     setupPlayer();
     if (shouldPlay) {
       playerRef.current.start(newSeq, undefined, targetTime).catch(err => console.error(err));
+      playerRef.current.setTempo(baseTempoRef.current * playbackSpeedRef.current);
+
       isPlayingRef.current = true;
       playingIdRef.current = 'ALL';
       setIsPlaying(true);
       setPlayingId('ALL');
+      startPlaybackClock(targetTime);
     } else {
       pausedTimeRef.current = targetTime;
       sequenceRef.current = newSeq;
@@ -400,13 +386,34 @@ export function useMidiPlayer() {
     }, 500);
   };
 
-  const changeSpeed = (newSpeed) => {
-    setPlaybackSpeed(newSpeed);
-    if (playerRef.current) {
-      const newTempo = baseTempoRef.current * newSpeed;
-      playerRef.current.setTempo(newTempo);
+const changeSpeed = (newSpeed) => {
+  const oldSpeed = playbackSpeedRef.current;
+  
+  playbackSpeedRef.current = newSpeed;
+  setPlaybackSpeed(newSpeed);
+
+  if (playerRef.current) {
+    const newTempo = baseTempoRef.current * newSpeed;
+    playerRef.current.setTempo(newTempo);
+
+    // Se estiver tocando, reancora o relógio de progresso para evitar saltos
+    if (isPlayingRef.current && audioCtxRef.current) {
+      const elapsedAudioTime = audioCtxRef.current.currentTime - playbackClockStartRef.current;
+      const currentSeqTime = playbackClockSequenceStartRef.current + (elapsedAudioTime * oldSpeed);
+
+      playbackClockStartRef.current = audioCtxRef.current.currentTime;
+      playbackClockSequenceStartRef.current = currentSeqTime;
     }
-  };
+    // 🔧 CORREÇÃO: se estiver pausado, realinha a posição interna do player
+    else if (!isPlayingRef.current) {
+      // Força a posição da sequência para o tempo exato de pausa
+      const safeTime = pausedTimeRef.current ?? 0;
+      playerRef.current.seekTo(safeTime);
+      // seekTo não altera o estado de pausa, mas por segurança:
+      playerRef.current.pause();
+    }
+  }
+};
 
   const togglePlayAll = async (partesIds, midiPath, volumesObj) => {
     if (volumesObj) {
