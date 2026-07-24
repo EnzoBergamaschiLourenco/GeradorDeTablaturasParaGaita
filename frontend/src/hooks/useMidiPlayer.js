@@ -196,8 +196,7 @@ export function useMidiPlayer() {
 
     playerRef.current = new mm.Player(false, {
       run: (note) => {
-        // AQUI: Esvaziamos essa função para evitar conflitos.
-        // O requestAnimationFrame agora é o único responsável pelo estado tempoAtual.
+        // O requestAnimationFrame é o único responsável pelo estado tempoAtual.
       },
       stop: () => {
         setIsPlaying(false);
@@ -229,34 +228,34 @@ export function useMidiPlayer() {
     }
   };
 
-const pauseAll = () => {
-  stopPlaybackClock();
-  changeSpeed(parseFloat(1));
-  if (playerRef.current) {
-    try {
-      // Calcula o tempo REAL da sequência, usando as mesmas refs do relógio
-      let currentTime = 0;
-      if (audioCtxRef.current && playbackClockStartRef.current) {
-        const elapsedAudio =
-          audioCtxRef.current.currentTime - playbackClockStartRef.current;
-        currentTime =
-          playbackClockSequenceStartRef.current +
-          elapsedAudio * playbackSpeedRef.current;
-      } else {
-        // fallback seguro (nunca deveria ser usado, mas evita 0)
-        currentTime = tempoAtual;
+  const pauseAll = () => {
+    stopPlaybackClock();
+    changeSpeed(parseFloat(1));
+    if (playerRef.current) {
+      try {
+        // Calcula o tempo REAL da sequência, usando as mesmas refs do relógio
+        let currentTime = 0;
+        if (audioCtxRef.current && playbackClockStartRef.current) {
+          const elapsedAudio =
+            audioCtxRef.current.currentTime - playbackClockStartRef.current;
+          currentTime =
+            playbackClockSequenceStartRef.current +
+            elapsedAudio * playbackSpeedRef.current;
+        } else {
+          // fallback seguro (nunca deveria ser usado, mas evita 0)
+          currentTime = tempoAtual;
+        }
+        pausedTimeRef.current = currentTime;
+        playerRef.current.pause();
+
+      } catch (e) {
+        console.error("Erro ao pausar:", e);
+        pausedTimeRef.current = tempoAtual;
       }
-      pausedTimeRef.current = currentTime;
-      playerRef.current.pause();
-      
-    } catch (e) {
-      console.error("Erro ao pausar:", e);
-      pausedTimeRef.current = tempoAtual;
     }
-  }
-  isPlayingRef.current = false;
-  setIsPlaying(false);
-};
+    isPlayingRef.current = false;
+    setIsPlaying(false);
+  };
 
   const resumeAll = () => {
     const seekTime = pausedTimeRef.current;
@@ -386,34 +385,34 @@ const pauseAll = () => {
     }, 500);
   };
 
-const changeSpeed = (newSpeed) => {
-  const oldSpeed = playbackSpeedRef.current;
-  
-  playbackSpeedRef.current = newSpeed;
-  setPlaybackSpeed(newSpeed);
+  const changeSpeed = (newSpeed) => {
+    const oldSpeed = playbackSpeedRef.current;
 
-  if (playerRef.current) {
-    const newTempo = baseTempoRef.current * newSpeed;
-    playerRef.current.setTempo(newTempo);
+    playbackSpeedRef.current = newSpeed;
+    setPlaybackSpeed(newSpeed);
 
-    // Se estiver tocando, reancora o relógio de progresso para evitar saltos
-    if (isPlayingRef.current && audioCtxRef.current) {
-      const elapsedAudioTime = audioCtxRef.current.currentTime - playbackClockStartRef.current;
-      const currentSeqTime = playbackClockSequenceStartRef.current + (elapsedAudioTime * oldSpeed);
+    if (playerRef.current) {
+      const newTempo = baseTempoRef.current * newSpeed;
+      playerRef.current.setTempo(newTempo);
 
-      playbackClockStartRef.current = audioCtxRef.current.currentTime;
-      playbackClockSequenceStartRef.current = currentSeqTime;
+      // Se estiver tocando, reancora o relógio de progresso para evitar saltos
+      if (isPlayingRef.current && audioCtxRef.current) {
+        const elapsedAudioTime = audioCtxRef.current.currentTime - playbackClockStartRef.current;
+        const currentSeqTime = playbackClockSequenceStartRef.current + (elapsedAudioTime * oldSpeed);
+
+        playbackClockStartRef.current = audioCtxRef.current.currentTime;
+        playbackClockSequenceStartRef.current = currentSeqTime;
+      }
+      // 🔧 CORREÇÃO: se estiver pausado, realinha a posição interna do player
+      else if (!isPlayingRef.current) {
+        // Força a posição da sequência para o tempo exato de pausa
+        const safeTime = pausedTimeRef.current ?? 0;
+        playerRef.current.seekTo(safeTime);
+        // seekTo não altera o estado de pausa, mas por segurança:
+        playerRef.current.pause();
+      }
     }
-    // 🔧 CORREÇÃO: se estiver pausado, realinha a posição interna do player
-    else if (!isPlayingRef.current) {
-      // Força a posição da sequência para o tempo exato de pausa
-      const safeTime = pausedTimeRef.current ?? 0;
-      playerRef.current.seekTo(safeTime);
-      // seekTo não altera o estado de pausa, mas por segurança:
-      playerRef.current.pause();
-    }
-  }
-};
+  };
 
   const togglePlayAll = async (partesIds, midiPath, volumesObj) => {
     if (volumesObj) {
