@@ -104,20 +104,9 @@ export function useMidiPlayer() {
       throw new Error('Nenhuma parte possui notas.');
     }
 
-    const ghostNote = {
-      pitch: 0,
-      startTime: 0,
-      endTime: 0.001,
-      velocity: 0,
-      instrument: 0,
-      isDrum: false,
-      isGhost: true,
-    };
-
     let combinedSequence = {
       ...firstSeq,
       notes: [
-        ghostNote,
         ...combinedNotes,
       ],
       totalTime: maxTime,
@@ -127,6 +116,13 @@ export function useMidiPlayer() {
       timeSignatures: firstSeq.timeSignatures || [{ time: 0, numerator: 4, denominator: 4 }],
     };
 
+    combinedNotes.sort((a, b) => {
+      if (a.startTime !== b.startTime)
+        return a.startTime - b.startTime;
+
+      return a.pitch - b.pitch;
+    });
+
     combinedSequence = sanitizeSequence(combinedSequence);
     totalDurationRef.current = combinedSequence.totalTime;
     currentPartesIdsRef.current = partesIds;
@@ -134,7 +130,6 @@ export function useMidiPlayer() {
     sequenceRef.current = combinedSequence;
     setDuration(combinedSequence.totalTime);
     baseTempoRef.current = combinedSequence.tempos?.[0]?.qpm || 120;
-
     return combinedSequence;
   };
 
@@ -292,6 +287,7 @@ export function useMidiPlayer() {
       setupPlayer();
 
       // Inicia a música com parâmetro 'undefined' para qpm e força via setTempo em seguida
+      playerRef.current.polySynth.maxPolyphony = 1000
       playerRef.current.start(combinedSequence, undefined, startTime)
         .catch(err => {
           console.error('Erro no player.start:', err);

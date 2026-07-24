@@ -47,6 +47,9 @@ Bash
 venv/Scripts/Activate
 py -m uvicorn main:app --reload
 
+7. Infinitizar maxPolyphony
+procurar por "maxPolyphony:" frontend\node_modules\@magenta\music\dist\magentamusic.js e se certificar que o valor é de 1000
+
 📂 Estrutura de Pastas Atual
 src/main.jsx: Ponto de entrada do React.
 
