@@ -540,7 +540,11 @@ export default function Menu() {
             >
               <option value="">Tipo da gaita (Todos)</option>
               <option value="Diatônica">Diatônica</option>
-              <option value="Cromática">Cromática</option>
+              <option value="Trêmolo">Trêmolo</option>
+              <option value="Cromática 10">Cromática 10</option>
+              <option value="Cromática 12">Cromática 12</option>
+              <option value="Cromática 14">Cromática 14</option>
+              <option value="Cromática 16">Cromática 16</option>
             </select>
           </div>
 

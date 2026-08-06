@@ -21,8 +21,13 @@ export default function MontarTablatura() {
   const letra = dadosRecebidos.letra || "Insira a letra aqui...";
   const midiSelecionado = dadosRecebidos.midi || null;
 
-  const [tomGaita, setTomGaita] = useState('C');
-  const [tipoGaita, setTipoGaita] = useState('Diatônica');
+  const [tipoGaita, setTipoGaita] = useState('');
+  const [tomGaita, setTomGaita] = useState('');
+  const [configuracaoConfirmada, setConfiguracaoConfirmada] = useState(false);
+  const [tonsDisponiveis, setTonsDisponiveis] = useState([]);
+  const [carregandoTons, setCarregandoTons] = useState(false);
+  const tiposDeGaitaOpcoes = ['Diatônica', 'Trêmolo', 'Cromática 10', 'Cromática 12', 'Cromática 14', 'Cromática 16'];
+  const primeiraMudancaTomRef = useRef(false);
 
   const [partesDisponiveis, setPartesDisponiveis] = useState([]);
   const [partesAdicionadas, setPartesAdicionadas] = useState([]);
@@ -235,7 +240,10 @@ export default function MontarTablatura() {
   }, [letra, midiSelecionado, musicaId]);
 
   useEffect(() => {
-    if (filaTraducao.length > 0 && !modalAjusteAberto && !isTraduzindo) {
+    if (!tipoGaita || !tomGaita) {
+      return;
+    }
+    else if (filaTraducao.length > 0 && !modalAjusteAberto && !isTraduzindo) {
       const parteAtual = filaTraducao[0];
       traduzirParteFila(parteAtual);
     }
@@ -436,6 +444,45 @@ export default function MontarTablatura() {
     }
   };
 
+  // ================= Buscar tons da gaita baseado no tipo selecionado =================
+
+  useEffect(() => {
+    async function buscarTonsPorTipo() {
+      if (!tipoGaita) return;
+      setCarregandoTons(true);
+
+      try {
+        const { data, error } = await supabase
+          .from('layouts_gaita')
+          .select('tom')
+          .eq('tipo', tipoGaita);
+
+        if (error) {
+          console.error("Erro ao buscar tons no Supabase:", error);
+          setTonsDisponiveis([]);
+        } else if (data) {
+          const tonsUnicos = [...new Set(data.map((item) => item.tom))];
+          setTonsDisponiveis(tonsUnicos);
+        }
+      } catch (err) {
+        console.error("Erro na conexão com Supabase:", err);
+      } finally {
+        setCarregandoTons(false);
+      }
+    }
+
+    buscarTonsPorTipo();
+  }, [tipoGaita]);
+
+  const handleConfirmarConfiguracao = () => {
+    if (!tipoGaita || !tomGaita) {
+      alert("Por favor, selecione o Tipo e o Tom da gaita.");
+      return;
+    }
+
+    setConfiguracaoConfirmada(true);
+  };
+
   // ================= RENDERIZAÇÃO =================
   if (mostrarPreview) {
     return (
@@ -489,12 +536,12 @@ export default function MontarTablatura() {
 
           <div style={{ display: 'flex', gap: '15px', marginBottom: 20, justifyContent: 'center' }}>
             <div>
-              <label style={s.labelStyle}>Tom da Gaita</label>
-              <input value={tomGaita} onChange={e => setTomGaita(e.target.value)} style={s.inputStyle} />
+              <label style={s.labelStyle}>Tipo de Gaita</label>
+              <input value={tipoGaita} style={s.inputStyle} readOnly />
             </div>
             <div>
-              <label style={s.labelStyle}>Tipo de Gaita</label>
-              <input value={tipoGaita} onChange={e => setTipoGaita(e.target.value)} style={s.inputStyle} />
+              <label style={s.labelStyle}>Tom da Gaita</label>
+              <input value={tomGaita} style={s.inputStyle} readOnly />
             </div>
           </div>
 
@@ -538,20 +585,51 @@ export default function MontarTablatura() {
               Configurações da Gaita
             </h3>
             <button onClick={recarregarTraducoes} style={s.btnRecarregar} title="Recarregar e Traduzir Novamente">↻</button>
+            <p style={{ fontSize: '50%', color: '#666' }}>Carregar comandos de gaita</p>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '25px' }}>
+            {/* CAMPO 1: TIPO DA GAITA (ACIMA) */}
             <div>
-              <label style={s.labelStyle}>Tom da Gaita</label>
-              <select style={s.inputStyle} value={tomGaita} onChange={e => setTomGaita(e.target.value)}>
-                {['C', 'G', 'A', 'D', 'E', 'F', 'Bb'].map(tom => <option key={tom} value={tom}>{tom}</option>)}
+              <label style={s.labelStyle}>Tipo da Gaita:</label>
+              <select style={s.inputStyle}
+                value={tipoGaita}
+                onChange={(e) => {
+                  setTipoGaita(e.target.value);
+                }}
+              >
+                <option value="">Selecione o tipo de gaita</option>
+                {tiposDeGaitaOpcoes.map((tipo) => (
+                  <option key={tipo} value={tipo}>{tipo}</option>
+                ))}
               </select>
             </div>
+
+            {/* CAMPO 2: TOM DA GAITA (ABAIXO, DEPENDENTE DO TIPO) */}
             <div>
-              <label style={s.labelStyle}>Tipo de Gaita</label>
-              <select style={s.inputStyle} value={tipoGaita} onChange={e => setTipoGaita(e.target.value)}>
-                <option value="Diatônica">Diatônica</option>
-                <option value="Cromática">Cromática</option>
+              <label style={s.labelStyle}>Tom da Gaita:</label>
+              <select
+                style={s.inputStyle}
+                value={tomGaita}
+                onChange={(e) => {
+                  const novoTom = e.target.value;
+
+                  setTomGaita(novoTom);
+
+                  if (!primeiraMudancaTomRef.current && novoTom !== '') {
+                    primeiraMudancaTomRef.current = true;
+                    recarregarTraducoes();
+                  }
+                }}
+                disabled={carregandoTons || tonsDisponiveis.length === 0}
+              >
+                <option value="">Escolha o tom da gaita</option>
+
+                {tonsDisponiveis.map((tom) => (
+                  <option key={tom} value={tom}>
+                    {tom}
+                  </option>
+                ))}
               </select>
             </div>
 
