@@ -9,12 +9,12 @@ export default function CriarTabs() {
 
   const [musica, setMusica] = useState('');
   const [autorMusica, setAutorMusica] = useState('');
-  const [letra, setLetra] = useState(''); 
+  const [letra, setLetra] = useState('');
 
   // Estados de controle do MIDI
   const [musicaId, setMusicaId] = useState(null);
   const [arquivosMidi, setArquivosMidi] = useState([]);
-  const [midiSelecionado, setMidiSelecionado] = useState(null); 
+  const [midiSelecionado, setMidiSelecionado] = useState(null);
   const [uploadingMidi, setUploadingMidi] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -58,7 +58,7 @@ export default function CriarTabs() {
   const selecionarSugestao = (item) => {
     setMusica(item.nome);
     setAutorMusica(item.autor || '');
-    setLetra(item.letra || ''); 
+    setLetra(item.letra || '');
     setMusicaId(item.id);
     setMidiSelecionado(null);
     setSugestoes([]);
@@ -70,7 +70,7 @@ export default function CriarTabs() {
       .from('arquivos_midi')
       .select('id, arquivo_midi, path')
       .eq('musica_id', id);
-    
+
     if (!error && midis) {
       const midiIds = midis.map(m => m.id);
 
@@ -115,7 +115,7 @@ export default function CriarTabs() {
 
       if (data) {
         setMusicaId(data.id);
-        if (data.letra) setLetra(data.letra); 
+        if (data.letra) setLetra(data.letra);
         buscarMidis(data.id);
       } else {
         setMusicaId(null);
@@ -155,9 +155,14 @@ export default function CriarTabs() {
         setMusicaId(currentMusicaId);
       }
 
-      const fileName = `${Date.now()}_${file.name}`;
-      const filePath = `${currentMusicaId}/${fileName}`;
+      const nomeSeguro = file.name
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // remove acentos
+        .replace(/[^\w\s.-]/g, '')       // remove caracteres problemáticos
+        .replace(/\s+/g, '_');            // espaços -> _
 
+      const fileName = `${Date.now()}_${nomeSeguro}`;
+      const filePath = `${currentMusicaId}/${fileName}`;
       const { error: uploadError, data } = await supabase.storage
         .from('Arquivos MIDI')
         .upload(filePath, file);
@@ -170,9 +175,9 @@ export default function CriarTabs() {
         .select()
         .single();
       if (insertError) throw insertError;
-      
+
       buscarMidis(currentMusicaId);
-      setMidiSelecionado(novoMidi); 
+      setMidiSelecionado(novoMidi);
 
     } catch (error) {
       console.error("Erro no upload:", error);
@@ -217,14 +222,14 @@ export default function CriarTabs() {
         currentMusicaId = novaMusica.id;
       }
 
-      navigate('/MontarTablatura', { 
-        state: { 
-          musicaId: currentMusicaId, 
-          nome: musica, 
+      navigate('/MontarTablatura', {
+        state: {
+          musicaId: currentMusicaId,
+          nome: musica,
           autor: autorMusica,
-          letra: letra, 
-          midi: midiSelecionado 
-        } 
+          letra: letra,
+          midi: midiSelecionado
+        }
       });
 
     } catch (error) {
@@ -238,7 +243,7 @@ export default function CriarTabs() {
   return (
     <div style={pageStyle}>
       <div style={contentWrapper}>
-        
+
         {/* COLUNA ESQUERDA: FORMULÁRIO */}
         <div style={leftColumn}>
           <h2 style={{ color: '#007bff', marginBottom: 25, textAlign: 'center', fontWeight: 'bold', fontSize: '32px' }}>
@@ -273,26 +278,26 @@ export default function CriarTabs() {
           </div>
 
           <div>
-            <label style={labelStyle}>Autor da Música {musicaId && <span style={{color: '#007bff'}}>(Bloqueado)</span>}</label>
+            <label style={labelStyle}>Autor da Música {musicaId && <span style={{ color: '#007bff' }}>(Bloqueado)</span>}</label>
             <input
               style={{ ...inputStyle, backgroundColor: musicaId ? '#f1f5f9' : 'white', cursor: musicaId ? 'not-allowed' : 'text' }}
               placeholder="Ex: Luiz Gonzaga"
               value={autorMusica}
               onChange={(e) => setAutorMusica(e.target.value)}
-              disabled={!!musicaId} 
+              disabled={!!musicaId}
             />
           </div>
 
           <div>
             <label style={labelStyle}>
-              Letra da Música {musicaId && <span style={{color: '#007bff'}}>(Bloqueado)</span>}
+              Letra da Música {musicaId && <span style={{ color: '#007bff' }}>(Bloqueado)</span>}
             </label>
             <textarea
               style={{ ...textareaStyle, backgroundColor: musicaId ? '#f1f5f9' : 'white', cursor: musicaId ? 'not-allowed' : 'text' }}
               placeholder="Cole ou digite a letra da música aqui..."
               value={letra}
               onChange={(e) => setLetra(e.target.value)}
-              disabled={!!musicaId} 
+              disabled={!!musicaId}
             />
           </div>
 
@@ -312,7 +317,7 @@ export default function CriarTabs() {
             </h3>
 
             <div style={midiListContainer}>
-              
+
               {midiSelecionado ? (
                 <div style={{ ...midiCardStyle, border: '2px solid #007bff', backgroundColor: '#eff6ff' }}>
                   <div style={iconBoxPrimary}>🎵</div>
@@ -322,8 +327,8 @@ export default function CriarTabs() {
                     </span>
                     <small style={{ color: '#007bff', fontSize: 12, fontWeight: 'bold' }}>MIDI Selecionado</small>
                   </div>
-                  <button 
-                    style={{...useMidiButton, backgroundColor: '#dc3545', boxShadow: 'none'}} 
+                  <button
+                    style={{ ...useMidiButton, backgroundColor: '#dc3545', boxShadow: 'none' }}
                     onClick={() => setMidiSelecionado(null)}
                   >
                     Trocar
@@ -350,7 +355,7 @@ export default function CriarTabs() {
                         <span style={{ color: '#333', fontWeight: 'bold', display: 'block', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', fontSize: '14px' }}>
                           {midi.arquivo_midi}
                         </span>
-                        
+
                         {/* EXIBIÇÃO EM ESTRELAS COM SUPORTE A MEIO PREENCHIMENTO */}
                         <div style={{ display: 'flex', gap: '2px', marginTop: '4px' }}>
                           {[1, 2, 3, 4, 5].map((star) => {
@@ -383,11 +388,11 @@ export default function CriarTabs() {
                   ))}
                 </>
               )}
-              
+
               {arquivosMidi.length === 0 && !midiSelecionado && (
                 <p style={{ color: '#666', textAlign: 'center', marginTop: 20, fontSize: 14, lineHeight: '1.5' }}>
                   Nenhum arquivo MIDI encontrado.<br />
-                  {!musicaId && <strong style={{color: '#ff4d4d'}}>Insira a letra ao lado para liberar uploads!</strong>}
+                  {!musicaId && <strong style={{ color: '#ff4d4d' }}>Insira a letra ao lado para liberar uploads!</strong>}
                 </p>
               )}
             </div>

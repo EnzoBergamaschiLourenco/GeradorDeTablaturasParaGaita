@@ -61,7 +61,7 @@ export default function Login() {
 
   const handleRecoverPassword = (e) => {
     e.preventDefault();
-    alert("Um email com uma senha aleatória foi enviado para o seu email cadastrado!");
+    alert("Um email com orientações de redefinição de senha foi enviado!");
     setIsRecovering(false);
   };
 
