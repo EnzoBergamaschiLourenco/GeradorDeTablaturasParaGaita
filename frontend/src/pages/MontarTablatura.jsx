@@ -54,6 +54,8 @@ export default function MontarTablatura() {
   }, []);
 
   const [parteEmAjuste, setParteEmAjuste] = useState(null);
+  const [offsetEmAjuste, setOffsetEmAjuste] = useState(null);
+  const [novaOitavaPendente, setNovaOitavaPendente] = useState(null);
 
   const [linhasLetra, setLinhasLetra] = useState([]);
   const [mostrarPreview, setMostrarPreview] = useState(false);
@@ -259,7 +261,7 @@ export default function MontarTablatura() {
     setNotasPorParte(prev => ({ ...prev, [parteId]: notasComId }));
   };
 
-  const traduzirParteFila = async (parteEncontrada, overrides = null) => {
+  const traduzirParteFila = async (parteEncontrada) => {
     setIsTraduzindo(true);
     setIsLoading(true);
     try {
@@ -272,62 +274,123 @@ export default function MontarTablatura() {
           parte_id: parteEncontrada.id,
           tom_gaita: tomGaita,
           tipo_gaita: tipoGaita,
-          overrides: overrides
+          overrides: null // Na primeira vez manda sem ajustes
         })
       });
 
       const resData = await response.json();
+      if (!response.ok) throw new Error(resData.detail || resData.error || `Erro: ${response.status}`);
 
-      if (!response.ok) {
-        throw new Error(resData.detail || resData.error || `Erro do servidor: ${response.status}`);
-      }
+      const data = resData.posicoes; // Array com TODAS as oitavas testadas
 
-      const data = resData.posicoes;
+      if (Array.isArray(data) && data.length > 0) {
+        // Decide qual é a oitava padrão (melhor cenário: perfeita e próxima a 0)
+        let bestIndex = -1;
+        const perfect0 = data.findIndex(p => p.offset === 0 && p.perfeita);
 
-      if (data && data.status === "requer_ajuste") {
-        setNotasPendentes(data.detalhes);
-        setComandosDaGaita(data.comandos_disponiveis);
-        setParteEmAjuste(parteEncontrada);
+        if (perfect0 !== -1) {
+          bestIndex = perfect0;
+        } else {
+          let perfects = data.map((p, i) => ({ ...p, index: i })).filter(p => p.perfeita);
+          if (perfects.length > 0) {
+            perfects.sort((a, b) => Math.abs(a.offset) - Math.abs(b.offset));
+            bestIndex = perfects[0].index;
+          } else {
+            // Se nenhuma é perfeita, pega a que tiver menos detalhes faltando
+            let imperfects = data.map((p, i) => ({ ...p, index: i }));
+            imperfects.sort((a, b) => {
+              if (a.detalhes.length !== b.detalhes.length) return a.detalhes.length - b.detalhes.length;
+              return Math.abs(a.offset) - Math.abs(b.offset);
+            });
+            bestIndex = imperfects[0].index;
+          }
+        }
 
-        const mapInicial = {};
-        data.detalhes.forEach(item => { mapInicial[item.nota_midi_original] = item.sugestao_comando; });
-        setMapeamentoUsuario(mapInicial);
-        setModalAjusteAberto(true);
-        setIsTraduzindo(false);
-        setIsLoading(false);
-      }
-      else if (Array.isArray(data) && data.length > 0) {
-        setModalAjusteAberto(false);
         setDadosOitavas(prev => ({
           ...prev,
-          [parteEncontrada.id]: { posicoes: data, selecionada: 0 }
+          [parteEncontrada.id]: { posicoes: data, selecionada: bestIndex }
         }));
-        atualizarNotasDoCard(parteEncontrada.id, data[0].tablatura);
 
+        const bestOption = data[bestIndex];
+
+        if (bestOption.perfeita) {
+          atualizarNotasDoCard(parteEncontrada.id, bestOption.tablatura);
+          setFilaTraducao(prev => prev.slice(1));
+        } else {
+          // Congela a fila, prepara modal para a oitava sugerida
+          setParteEmAjuste(parteEncontrada);
+          setOffsetEmAjuste(bestOption.offset);
+          setNovaOitavaPendente(null);
+          setNotasPendentes(bestOption.detalhes);
+          setComandosDaGaita(bestOption.comandos_disponiveis);
+          const mapInicial = {};
+          bestOption.detalhes.forEach(item => { mapInicial[item.nota_midi_original] = item.sugestao_comando; });
+          setMapeamentoUsuario(mapInicial);
+          setModalAjusteAberto(true);
+        }
+      } else {
         setFilaTraducao(prev => prev.slice(1));
-        setIsTraduzindo(false);
-        setIsLoading(false);
-      }
-      else {
-        setFilaTraducao(prev => prev.slice(1));
-        setIsTraduzindo(false);
-        setIsLoading(false);
       }
     } catch (err) {
-      console.error("Erro interno no JS ou na Requisição:", err);
+      console.error(err);
       alert(`Falha na tradução da parte ${parteEncontrada.nome}: \n${err.message}`);
       setFilaTraducao(prev => prev.slice(1));
+    } finally {
       setIsTraduzindo(false);
       setIsLoading(false);
     }
   };
 
-  const confirmarAjustes = () => traduzirParteFila(parteEmAjuste, mapeamentoUsuario);
+  const confirmarAjustes = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/midi/traduzir`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          musica_id: musicaId,
+          caminho_completo: midiSelecionado.path,
+          parte_id: parteEmAjuste.id,
+          tom_gaita: tomGaita,
+          tipo_gaita: tipoGaita,
+          // Passamos a oitava desejada escondida no dicionário
+          overrides: { ...mapeamentoUsuario, __target_offset__: String(offsetEmAjuste) }
+        })
+      });
+      const resData = await response.json();
+      const data = resData.posicoes;
 
-  const cancelarAjustes = () => {
-    setModalAjusteAberto(false);
-    setParteEmAjuste(null);
-    setFilaTraducao(prev => prev.slice(1));
+      // Se deu certo, a API devolveu apenas a opção selecionada com perfeita: true
+      if (Array.isArray(data) && data.length > 0 && data[0].perfeita) {
+        const novaTablatura = data[0].tablatura;
+
+        setDadosOitavas(prev => {
+          const newPosicoes = [...prev[parteEmAjuste.id].posicoes];
+          const updatedIndex = novaOitavaPendente !== null ? novaOitavaPendente : prev[parteEmAjuste.id].selecionada;
+          newPosicoes[updatedIndex] = { ...newPosicoes[updatedIndex], perfeita: true, tablatura: novaTablatura, ajustadaManualmente: true };
+          return {
+            ...prev,
+            [parteEmAjuste.id]: { posicoes: newPosicoes, selecionada: updatedIndex }
+          };
+        });
+
+        atualizarNotasDoCard(parteEmAjuste.id, novaTablatura);
+
+        setModalAjusteAberto(false);
+        setParteEmAjuste(null);
+        setOffsetEmAjuste(null);
+        setNovaOitavaPendente(null);
+
+        // Remove da fila se estava processando em massa
+        if (filaTraducao.length > 0 && filaTraducao[0].id === parteEmAjuste.id) {
+          setFilaTraducao(prev => prev.slice(1));
+        }
+      }
+    } catch (e) {
+      alert("Erro ao aplicar ajustes: " + e.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const recarregarTraducoes = () => {
@@ -339,10 +402,28 @@ export default function MontarTablatura() {
   };
 
   const handleMudancaOitava = (parteId, novaOitavaIndex) => {
-    setDadosOitavas(prev => ({
-      ...prev, [parteId]: { ...prev[parteId], selecionada: novaOitavaIndex }
-    }));
-    atualizarNotasDoCard(parteId, dadosOitavas[parteId].posicoes[novaOitavaIndex].tablatura);
+    const opcao = dadosOitavas[parteId].posicoes[novaOitavaIndex];
+
+    // Se for perfeita nativamente, OU se já foi ajustada e salva pelo usuário antes
+    if (opcao.perfeita || opcao.tablatura) {
+      setDadosOitavas(prev => ({
+        ...prev, [parteId]: { ...prev[parteId], selecionada: novaOitavaIndex }
+      }));
+      atualizarNotasDoCard(parteId, opcao.tablatura);
+    } else {
+      // Abre o modal para essa oitava sem tablatura
+      setParteEmAjuste(partesAdicionadas.find(p => p.id === parteId));
+      setOffsetEmAjuste(opcao.offset);
+      setNovaOitavaPendente(novaOitavaIndex);
+
+      setNotasPendentes(opcao.detalhes);
+      setComandosDaGaita(opcao.comandos_disponiveis);
+      const mapInicial = {};
+      opcao.detalhes.forEach(item => { mapInicial[item.nota_midi_original] = item.sugestao_comando; });
+      setMapeamentoUsuario(mapInicial);
+      setModalAjusteAberto(true);
+      // Obs: Não atualizamos 'selecionada' no estado, assim o <select> só muda se o modal for confirmado.
+    }
   };
 
   const handleSeekClick = (e, idClicado) => {
@@ -661,11 +742,19 @@ export default function MontarTablatura() {
                                 onChange={e => handleMudancaOitava(parte.id, parseInt(e.target.value))}
                                 style={s.selectOitavaStyle}
                               >
-                                {oitavaInfo.posicoes.map((p, idx) => (
-                                  <option key={idx} value={idx}>
-                                    {p.offset === 0 ? 'Oitava Original' : p.offset > 0 ? `+${p.offset / 12} Oitava` : `${p.offset / 12} Oitava`}
-                                  </option>
-                                ))}
+                                {oitavaInfo.posicoes.map((p, idx) => {
+                                  // AQUI: A estrela só aparece se a oitava for nativamente perfeita e não tiver o ajuste manual
+                                  const isNativa = p.perfeita && !p.ajustadaManualmente;
+
+                                  const labelOitava = p.offset === 0 ? 'Oitava Original'
+                                    : p.offset > 0 ? `+${p.offset / 12} Oitava` : `${p.offset / 12} Oitava`;
+
+                                  return (
+                                    <option key={idx} value={idx}>
+                                      {isNativa ? '⭐ ' : ''}{labelOitava}
+                                    </option>
+                                  );
+                                })}
                               </select>
                             )}
                           </div>
@@ -857,7 +946,6 @@ export default function MontarTablatura() {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button onClick={cancelarAjustes} style={s.btnCancelarModal}>Cancelar e Pular</button>
               <button onClick={confirmarAjustes} style={s.btnConfirmarModal}>Confirmar Adaptações</button>
             </div>
           </div>

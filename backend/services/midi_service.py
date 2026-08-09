@@ -244,6 +244,11 @@ def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo, overrides=No
     if overrides is None:
         overrides = {}
 
+    # Interceptamos um comando oculto do frontend para forçar a avaliação de um offset específico pós-ajuste
+    target_offset = None
+    if "__target_offset__" in overrides:
+        target_offset = int(overrides.pop("__target_offset__"))
+
     caminho_local = os.path.join(ARQUIVOS_PATH, caminho_completo)
     mid = mido.MidiFile(caminho_local)
     tpb = mid.ticks_per_beat
@@ -305,17 +310,25 @@ def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo, overrides=No
     mapa_gaita = {nota_para_midi(item["nota_musical"]): item["comando_gaita"] for item in mapeamento_response.data}
     comandos_disponiveis = list(set(mapa_gaita.values()))
     notas_unicas = list(set(evento["nota_midi"] for evento in eventos_musicais))
-    posicoes_validas = []
-    melhor_offset = None
-    menor_qtd_faltantes = float("inf")
-    notas_faltantes_do_melhor = []
+    
+    # Range abrangente de oitavas (de -4 a +4 oitavas)
+    offsets_to_test = [-48, -36, -24, -12, 0, 12, 24, 36, 48]
+    if target_offset is not None:
+        offsets_to_test = [target_offset] # Se for confirmação do modal, avalia apenas a oitava pedida
 
-    for offset in [-24, -12, 0, 12, 24]:
+    posicoes = []
+
+    for offset in offsets_to_test:
+        # Verifica se o deslocamento joga a música para fora do alcance técnico do MIDI (0 a 127)
+        if min(notas_unicas) + offset < 0 or max(notas_unicas) + offset > 127:
+            continue
+
         faltantes = []
         for nota in notas_unicas:
             nota_alvo = nota + offset
             if nota_alvo not in mapa_gaita and str(nota) not in overrides:
                 faltantes.append(nota)
+
         if not faltantes:
             comandos = []
             for indice, evento in enumerate(eventos_musicais):
@@ -328,25 +341,36 @@ def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo, overrides=No
                     "inicio": evento["inicio"],
                     "fim": evento["fim"]
                 })
-            posicoes_validas.append({"offset": offset, "tablatura": comandos})
+            posicoes.append({
+                "offset": offset,
+                "perfeita": True,
+                "tablatura": comandos
+            })
         else:
-            if len(faltantes) < menor_qtd_faltantes:
-                menor_qtd_faltantes = len(faltantes)
-                melhor_offset = offset
-                notas_faltantes_do_melhor = faltantes
+            detalhes_faltantes = []
+            for nota in faltantes:
+                nota_alvo = nota + offset
+                
+                if mapa_gaita:
+                    # A nova lógica prioriza a mesma nota (modulo 12) em outra oitava.
+                    # O multiplicador 1000 garante que a diferença de semitom pese muito mais 
+                    # do que a distância de oitavas na hora da escolha.
+                    nota_mais_proxima = min(
+                        mapa_gaita.keys(), 
+                        key=lambda k: (min(abs((k % 12) - (nota_alvo % 12)), 12 - abs((k % 12) - (nota_alvo % 12))) * 1000) + abs(k - nota_alvo)
+                    )
+                else:
+                    nota_mais_proxima = 0
+                    
+                comando_sugerido = mapa_gaita.get(nota_mais_proxima, "1")
+                detalhes_faltantes.append({"nota_midi_original": nota, "sugestao_comando": comando_sugerido})
 
-    if posicoes_validas:
-        return posicoes_validas
+            posicoes.append({
+                "offset": offset,
+                "perfeita": False,
+                "detalhes": detalhes_faltantes,
+                "comandos_disponiveis": sorted(comandos_disponiveis, key=lambda x: (len(x), x))
+            })
 
-    detalhes_faltantes = []
-    for nota in notas_faltantes_do_melhor:
-        nota_alvo = nota + (melhor_offset if melhor_offset is not None else 0)
-        nota_mais_proxima = min(mapa_gaita.keys(), key=lambda k: abs(k - nota_alvo)) if mapa_gaita else 0
-        comando_sugerido = mapa_gaita.get(nota_mais_proxima, "1")
-        detalhes_faltantes.append({"nota_midi_original": nota, "sugestao_comando": comando_sugerido})
-
-    return {
-        "status": "requer_ajuste",
-        "detalhes": detalhes_faltantes,
-        "comandos_disponiveis": sorted(comandos_disponiveis, key=lambda x: (len(x), x))
-    }
+    # O retorno agora é SEMPRE uma lista estruturada de todas as opções de oitavas
+    return posicoes
