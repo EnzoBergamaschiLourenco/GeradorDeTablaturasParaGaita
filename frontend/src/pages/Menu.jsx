@@ -1,8 +1,16 @@
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient'; // Ajuste o caminho se necessário
+import CustomModal from '../components/CustomModal';
 
 export default function Menu() {
+
+  const [modalConfirmConfig, setModalConfirmConfig] = useState({
+    isOpen: false,
+    message: '',
+    onConfirm: null
+  });
+
   const navigate = useNavigate();
 
   const [usuario, setUsuario] = useState(null);
@@ -105,11 +113,18 @@ export default function Menu() {
   }, [filtroTipo]);
 
   const handleLogout = () => {
-    if (window.confirm('Deseja mesmo sair?')) {
-      localStorage.removeItem('usuarioLogado');
-      setUsuario(null);
-      navigate('/login');
-    }
+    setModalConfirmConfig({
+      isOpen: true,
+      title: 'Sair da conta',
+      message: 'Deseja mesmo sair?',
+      type: 'warning',
+      onConfirm: () => {
+        // O que acontece se o usuário clicar em "Confirmar"
+        localStorage.removeItem('usuarioLogado');
+        setUsuario(null);
+        navigate('/login');
+      }
+    });
   };
 
   // Função para buscar tablaturas no Supabase
@@ -220,7 +235,7 @@ export default function Menu() {
   const handlePesquisaPrincipal = () => {
     const termo = busca.trim();
 
-    if (termo !== '') {
+    if (termo) {
       setFiltroNomeMusica(termo);
       buscarTablaturas(termo);
     }
@@ -315,7 +330,6 @@ export default function Menu() {
               >
                 {usuario.nome}
               </span>
-
               <span
                 onClick={(e) => {
                   e.stopPropagation();
@@ -352,6 +366,14 @@ export default function Menu() {
       </div>
 
       {/* CONTEÚDO PRINCIPAL */}
+      <CustomModal
+        isOpen={modalConfirmConfig.isOpen}
+        title={modalConfirmConfig.title}
+        message={modalConfirmConfig.message}
+        type={modalConfirmConfig.type}
+        onConfirm={modalConfirmConfig.onConfirm}
+        onClose={() => setModalConfirmConfig({ ...modalConfirmConfig, isOpen: false })}
+      />
       <div
         style={{
           width: '100%',

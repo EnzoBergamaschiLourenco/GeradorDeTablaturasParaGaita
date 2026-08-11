@@ -1,8 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
+import CustomModal from '../components/CustomModal';
 
 export default function CriarTabs() {
+  const [modalConfig, setModalConfig] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info'
+  });
+
+  const showAlert = (message, title = 'Aviso', type = 'info') => {
+    setModalConfig({ isOpen: true, title, message, type });
+  };
+
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [usuario, setUsuario] = useState(null);
@@ -139,7 +151,7 @@ export default function CriarTabs() {
     try {
       if (!currentMusicaId) {
         if (!musica.trim() || !autorMusica.trim() || !letra.trim()) {
-          alert("⚠️ Preencha Nome, Autor e Letra da música para adicionar um MIDI.");
+          showAlert("⚠️ Preencha Nome, Autor e Letra da música para adicionar um MIDI.");
           setUploadingMidi(false);
           return;
         }
@@ -181,7 +193,7 @@ export default function CriarTabs() {
 
     } catch (error) {
       console.error("Erro no upload:", error);
-      alert("Erro ao processar o arquivo MIDI.");
+      showAlert("Erro ao processar o arquivo MIDI.", "Erro", "error");
     } finally {
       setUploadingMidi(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -191,13 +203,17 @@ export default function CriarTabs() {
   // ===== AÇÃO DE REDIRECIONAR / MONTAR TABLATURA =====
   const handleMontarTablatura = async () => {
     if (!usuario) {
-      alert("⚠️ Você precisa estar logado para montar tablaturas!");
+      showAlert("Você precisa estar logado para montar tablaturas!", "Aviso", "info");
       navigate('/login');
       return;
     }
 
     if (!midiSelecionado) {
-      alert("⚠️ Selecione um arquivo MIDI na coluna da direita para prosseguir.");
+      if (!musica.trim() || !autorMusica.trim() || !letra.trim()) {
+          showAlert("Preencha Nome, Autor e Letra da música.", "Aviso", "info");
+      } else {
+          showAlert("Selecione um arquivo MIDI na coluna da direita para prosseguir.", "Aviso", "info");
+      }
       return;
     }
 
@@ -207,7 +223,6 @@ export default function CriarTabs() {
     try {
       if (!currentMusicaId) {
         if (!musica.trim() || !autorMusica.trim() || !letra.trim()) {
-          alert("⚠️ Preencha Nome, Autor e Letra da música.");
           setLoading(false);
           return;
         }
@@ -234,7 +249,7 @@ export default function CriarTabs() {
 
     } catch (error) {
       console.error("Erro ao salvar música:", error);
-      alert("Houve um erro ao processar os dados.");
+      showAlert("Houve um erro ao processar os dados.", "Erro", "error");
     } finally {
       setLoading(false);
     }
@@ -243,7 +258,14 @@ export default function CriarTabs() {
   return (
     <div style={pageStyle}>
       <div style={contentWrapper}>
-
+        
+        <CustomModal
+          isOpen={modalConfig.isOpen}
+          title={modalConfig.title}
+          message={modalConfig.message}
+          type={modalConfig.type}
+          onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+        />
         {/* COLUNA ESQUERDA: FORMULÁRIO */}
         <div style={leftColumn}>
           <h2 style={{ color: '#007bff', marginBottom: 25, textAlign: 'center', fontWeight: 'bold', fontSize: '32px' }}>

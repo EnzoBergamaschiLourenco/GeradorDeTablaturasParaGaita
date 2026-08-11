@@ -4,9 +4,20 @@ import * as mm from '@magenta/music';
 import * as s from '../styles/MontarTablaturaStyles';
 import { useMidiPlayer, midiToNoteName } from '../hooks/useMidiPlayer';
 import { supabase } from '../supabaseClient';
+import CustomModal from '../components/CustomModal';
 
 // ================= COMPONENTE PRINCIPAL =================
 export default function MontarTablatura() {
+  const [modalConfig, setModalConfig] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info'
+  });
+
+  const showAlert = (message, title = 'Aviso', type = 'info') => {
+    setModalConfig({ isOpen: true, title, message, type });
+  };
 
   const [notaAvaliacao, setNotaAvaliacao] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -47,6 +58,15 @@ export default function MontarTablatura() {
   const [comandosDaGaita, setComandosDaGaita] = useState([]);
   const [usuario, setUsuario] = useState(null);
   const [mapeamentoUsuario, setMapeamentoUsuario] = useState({});
+
+  useEffect(() => {
+    if (!tomGaita) return;
+
+    if (!primeiraMudancaTomRef.current) {
+      primeiraMudancaTomRef.current = true;
+      recarregarTraducoes();
+    }
+  }, [tomGaita]);
 
   useEffect(() => {
     const dadosSalvos = localStorage.getItem('usuarioLogado');
@@ -134,7 +154,7 @@ export default function MontarTablatura() {
 
   const handleSaveTablatura = async () => {
     if (!usuario) {
-      alert("Usuário não autenticado.");
+      showAlert("Usuário não autenticado.", "Aviso", "warning");
       return;
     }
 
@@ -148,7 +168,7 @@ export default function MontarTablatura() {
         .single();
 
       if (layoutError || !layout) {
-        alert("Erro ao encontrar o layout da gaita. Verifique se o tom e tipo são válidos.");
+        showAlert("Erro ao encontrar o layout da gaita. Verifique se o tom e tipo são válidos.", "Erro", "error");
         setIsLoading(false);
         return;
       }
@@ -168,7 +188,7 @@ export default function MontarTablatura() {
 
       if (insertError) {
         console.error(insertError);
-        alert("Erro ao salvar tablatura.");
+        showAlert("Erro ao salvar tablatura.", "Erro", "error");
       } else {
         if (midiSelecionado?.id) {
           const { error: ratingError } = await supabase
@@ -187,7 +207,7 @@ export default function MontarTablatura() {
       }
     } catch (err) {
       console.error(err);
-      alert("Erro inesperado ao salvar.");
+      showAlert("Erro inesperado ao salvar.", "Erro", "error");
     } finally {
       setIsLoading(false);
     }
@@ -333,7 +353,7 @@ export default function MontarTablatura() {
       }
     } catch (err) {
       console.error(err);
-      alert(`Falha na tradução da parte ${parteEncontrada.nome}: \n${err.message}`);
+      showAlert(`Falha na tradução da parte ${parteEncontrada.nome}: \n${err.message}`, "Erro", "error");
       setFilaTraducao(prev => prev.slice(1));
     } finally {
       setIsTraduzindo(false);
@@ -387,7 +407,7 @@ export default function MontarTablatura() {
         }
       }
     } catch (e) {
-      alert("Erro ao aplicar ajustes: " + e.message);
+      showAlert("Erro ao aplicar ajustes: " + e.message, "Erro", "error");
     } finally {
       setIsLoading(false);
     }
@@ -399,6 +419,10 @@ export default function MontarTablatura() {
     setNotasPorParte({});
     setDadosOitavas({});
     setFilaTraducao([...partesAdicionadas]);
+    if (!tipoGaita || !tomGaita) {
+      showAlert("Por favor, selecione o Tipo e o Tom da gaita.", "Aviso", "warning");
+      return;
+    }
   };
 
   const handleMudancaOitava = (parteId, novaOitavaIndex) => {
@@ -555,15 +579,6 @@ export default function MontarTablatura() {
     buscarTonsPorTipo();
   }, [tipoGaita]);
 
-  const handleConfirmarConfiguracao = () => {
-    if (!tipoGaita || !tomGaita) {
-      alert("Por favor, selecione o Tipo e o Tom da gaita.");
-      return;
-    }
-
-    setConfiguracaoConfirmada(true);
-  };
-
   // ================= RENDERIZAÇÃO =================
   if (mostrarPreview) {
     return (
@@ -579,6 +594,13 @@ export default function MontarTablatura() {
             </div>
           </div>
         )}
+        <CustomModal
+          isOpen={modalConfig.isOpen}
+          title={modalConfig.title}
+          message={modalConfig.message}
+          type={modalConfig.type}
+          onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+        />
         <div style={{ ...s.mainCard, maxWidth: '800px', textAlign: 'center' }}>
           <h2 style={{ color: '#007bff', marginBottom: 5 }}>{nome}</h2>
           <p style={{ color: '#666', marginBottom: 30 }}>{autor}</p>
@@ -657,7 +679,13 @@ export default function MontarTablatura() {
           </div>
         </div>
       )}
-
+      <CustomModal
+        isOpen={modalConfig.isOpen}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        type={modalConfig.type}
+        onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+      />
       <div style={s.contentWrapper}>
         {/* COLUNA ESQUERDA */}
         <div style={{ ...s.columnBox, flex: 1 }}>
@@ -693,14 +721,7 @@ export default function MontarTablatura() {
                 style={s.inputStyle}
                 value={tomGaita}
                 onChange={(e) => {
-                  const novoTom = e.target.value;
-
-                  setTomGaita(novoTom);
-
-                  if (!primeiraMudancaTomRef.current && novoTom !== '') {
-                    primeiraMudancaTomRef.current = true;
-                    recarregarTraducoes();
-                  }
+                  setTomGaita(e.target.value);
                 }}
                 disabled={carregandoTons || tonsDisponiveis.length === 0}
               >

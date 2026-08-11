@@ -1,8 +1,21 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { supabase } from '../supabaseClient'; // Ajuste o caminho conforme o seu projeto
+import { supabase } from '../supabaseClient';
+import CustomModal from '../components/CustomModal';
 
 export default function VisualizarTabs() {
+  const [modalConfig, setModalConfig] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info',
+    onConfirm: null
+  });
+
+  const showAlert = (message, title = 'Aviso', type = 'info') => {
+    setModalConfig({ isOpen: true, title, message, type });
+  };
+
   const navigate = useNavigate();
   const location = useLocation();
   const tabRecebida = location.state?.tab;
@@ -79,7 +92,7 @@ Pleased the Lord
 
   const handleCurtida = async () => {
     if (!usuario) {
-      alert("⚠️ Você precisa estar logado para curtir esta tablatura!");
+      showAlert("⚠️ Você precisa estar logado para curtir esta tablatura!");
       navigate('/login');
       return;
     }
@@ -120,7 +133,7 @@ Pleased the Lord
 
   const handleSalvarEdicao = async () => {
     if (!textoTablatura.trim()) {
-      alert("A tablatura não pode estar vazia.");
+      showAlert("A tablatura não pode estar vazia.");
       return;
     }
 
@@ -134,39 +147,43 @@ Pleased the Lord
 
     if (error) {
       console.error("Erro ao salvar:", error);
-      alert("Erro ao salvar alterações.");
+      showAlert("Erro ao salvar alterações.");
     } else {
       setEditando(false);
-      alert("Tablatura atualizada com sucesso!");
+      showAlert("Tablatura atualizada com sucesso!");
     }
   };
 
   const handleExcluir = async () => {
-    const confirmou = window.confirm("ATENÇÃO: Tem certeza que deseja excluir permanentemente essa tablatura?");
+    setModalConfig({
+      isOpen: true,
+      title: 'Sair da conta',
+      message: 'Deseja mesmo sair?',
+      type: 'warning',
+      onConfirm: async () => {
+        try {
+          // Como o schema não tem ON DELETE CASCADE, precisamos deletar as curtidas vinculadas primeiro
+          await supabase
+            .from('curtidas')
+            .delete()
+            .eq('tablatura_id', tabData.id);
 
-    if (confirmou && tabData.id) {
-      try {
-        // Como o schema não tem ON DELETE CASCADE, precisamos deletar as curtidas vinculadas primeiro
-        await supabase
-          .from('curtidas')
-          .delete()
-          .eq('tablatura_id', tabData.id);
+          // Agora deletamos a tablatura
+          const { error } = await supabase
+            .from('tablaturas')
+            .delete()
+            .eq('id', tabData.id);
 
-        // Agora deletamos a tablatura
-        const { error } = await supabase
-          .from('tablaturas')
-          .delete()
-          .eq('id', tabData.id);
+          if (error) throw error;
 
-        if (error) throw error;
-
-        alert("Tablatura excluída com sucesso!");
-        navigate('/');
-      } catch (error) {
-        console.error("Erro ao excluir:", error);
-        alert("Ocorreu um erro ao excluir a tablatura.");
+          showAlert("Tablatura excluída com sucesso!");
+          navigate('/');
+        } catch (error) {
+          console.error("Erro ao excluir:", error);
+          showAlert("Ocorreu um erro ao excluir a tablatura.");
+        }
       }
-    }
+    });
   };
 
   return (
@@ -182,6 +199,14 @@ Pleased the Lord
         overflow: 'hidden'
       }}
     >
+      <CustomModal
+        isOpen={modalConfig.isOpen}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        type={modalConfig.type}
+        onConfirm={modalConfig.onConfirm}
+        onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+      />
       {/* Botão Voltar - Canto Esquerdo */}
       <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 10 }}>
         <button

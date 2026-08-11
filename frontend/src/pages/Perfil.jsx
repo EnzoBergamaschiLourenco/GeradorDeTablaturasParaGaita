@@ -1,8 +1,28 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
+import CustomModal from '../components/CustomModal';
 
 export default function Perfil() {
+  const hashPassword = async (password) => {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+
+  const [modalConfig, setModalConfig] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info'
+  });
+
+  const showAlert = (message, title = 'Aviso', type = 'info') => {
+    setModalConfig({ isOpen: true, title, message, type });
+  };
+
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
@@ -33,7 +53,7 @@ export default function Perfil() {
   // Bloqueia a renderização de componentes filhos enquanto o useEffect valida o login,
   // impedindo erros de "cannot read property of null"
   if (!usuario) {
-    return null; 
+    return null;
   }
 
   // Detecta se a foto foi gravada como 'foto' (seu login atual) ou 'foto_perfil'
@@ -68,21 +88,22 @@ export default function Perfil() {
   // =========================
   const handleUpdate = async () => {
     if (!senhaAtual) {
-      alert("Senha atual obrigatória.");
+      showAlert("Senha atual obrigatória.", "Alerta", "info");
       return;
     }
 
     setLoading(true);
 
+    const senhaHasheada = await hashPassword(senhaAtual);
     const { data: userVerify } = await supabase
       .from('usuarios')
       .select('*')
       .eq('email', usuario.email)
-      .eq('senha', senhaAtual)
+      .eq('senha', senhaHasheada)
       .single();
 
     if (!userVerify) {
-      alert("Senha incorreta.");
+      showAlert("Senha incorreta.", "Erro", "error");
       setLoading(false);
       return;
     }
@@ -107,7 +128,7 @@ export default function Perfil() {
       .eq('email', usuario.email);
 
     if (error) {
-      alert(error.message);
+      showAlert(error.message, "Erro", "error");
     } else {
       // Garante compatibilidade total salvando tanto em 'foto' quanto em 'foto_perfil'
       const novoUsuario = {
@@ -120,7 +141,7 @@ export default function Perfil() {
       setUsuario(novoUsuario);
       localStorage.setItem('usuarioLogado', JSON.stringify(novoUsuario));
 
-      alert("Perfil updated!");
+      showAlert("Perfil atualizado!", "Sucesso", "success");
       setIsEditing(false);
       setSenhaAtual('');
       setSenhaNova('');
@@ -135,21 +156,22 @@ export default function Perfil() {
   // =========================
   const handleDeleteAccount = async () => {
     if (!senhaConfirmacaoDelete) {
-      alert("Digite sua senha.");
+      showAlert("Digite sua senha.", "Aviso", "info");
       return;
     }
 
     setLoading(true);
 
+    const senhaHasheada = await hashPassword(senhaConfirmacaoDelete);
     const { data: userVerify } = await supabase
       .from('usuarios')
       .select('*')
       .eq('email', usuario.email)
-      .eq('senha', senhaConfirmacaoDelete)
+      .eq('senha', senhaHasheada)
       .single();
 
     if (!userVerify) {
-      alert("Senha incorreta.");
+      showAlert("Senha incorreta.", "Erro", "error");
       setLoading(false);
       return;
     }
@@ -168,6 +190,13 @@ export default function Perfil() {
   // =========================
   return (
     <div style={pageStyle}>
+      <CustomModal
+        isOpen={modalConfig.isOpen}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        type={modalConfig.type}
+        onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+      />
       <div style={cardStyle}>
         <h1 style={{ color: '#007bff' }}>Meu Perfil</h1>
 
@@ -182,7 +211,7 @@ export default function Perfil() {
           ) : (
             <div style={{ ...avatarStyle, display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: '#e2e8f0' }}>
               <svg viewBox="0 0 24 24" width="60" height="60" fill="#64748b">
-                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
               </svg>
             </div>
           )}
@@ -271,7 +300,7 @@ export default function Perfil() {
             >
               {loading ? 'Excluindo...' : 'Excluir conta'}
             </button>
-            
+
             <p style={link} onClick={() => setIsDeletingAccount(false)}>
               Cancelar
             </p>

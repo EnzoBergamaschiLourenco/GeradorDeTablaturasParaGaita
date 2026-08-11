@@ -1,8 +1,29 @@
 import { useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
+import CustomModal from '../components/CustomModal';
+
+// Função para criar hash da senha (SHA-256) nativo do navegador
+const hashPassword = async (password) => {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
 
 export default function Login() {
+  const [modalConfig, setModalConfig] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info'
+  });
+
+  const showAlert = (message, title = 'Aviso', type = 'info') => {
+    setModalConfig({ isOpen: true, title, message, type });
+  };
+
   const [isRegistering, setIsRegistering] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -11,49 +32,98 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [nome, setNome] = useState('');
-  const [fotoPerfil, setFotoPerfil] = useState('');
+  const [fotoFile, setFotoFile] = useState(null); // Mudança para receber o arquivo
 
+  // =========================
+  // UPLOAD AVATAR
+  // =========================
+  const uploadAvatar = async (file) => {
+    if (!file) return null;
+
+    const fileName = `${Date.now()}-${file.name}`;
+
+    const { error } = await supabase.storage
+      .from('Fotos de perfil')
+      .upload(fileName, file);
+
+    if (error) {
+      console.error(error);
+      return null;
+    }
+
+    const { data } = supabase.storage
+      .from('Fotos de perfil')
+      .getPublicUrl(fileName);
+
+    return data.publicUrl;
+  };
+
+  // =========================
+  // AUTENTICAÇÃO
+  // =========================
   const handleAuth = async () => {
     setLoading(true);
 
-    if (isRegistering) {
-      const { error } = await supabase
-        .from('usuarios')
-        .insert([
-          { nome, email, senha, foto: fotoPerfil }
-        ]);
+    try {
+      if (isRegistering) {
+        let urlFoto = '';
 
-      if (error) {
-        alert("Erro ao registrar: Email já cadastrado ou dados inválidos.");
+        // Se o usuário selecionou uma imagem, faz o upload
+        if (fotoFile) {
+          const uploadedUrl = await uploadAvatar(fotoFile);
+          if (uploadedUrl) urlFoto = uploadedUrl;
+        }
+
+        // Criptografa a senha antes de salvar
+        const senhaHasheada = await hashPassword(senha);
+
+        const { error } = await supabase
+          .from('usuarios')
+          .insert([
+            {
+              nome,
+              email,
+              senha: senhaHasheada,
+              foto_perfil: urlFoto
+            }
+          ]);
+
+        if (error) {
+          showAlert("Erro ao registrar: Email já cadastrado ou dados inválidos.", "Erro no cadastro", "error");
+        } else {
+          showAlert("Conta criada com sucesso!", "Cadastro realizado", "info");
+          setIsRegistering(false);
+        }
       } else {
-        alert("Conta criada com sucesso!");
-        setIsRegistering(false);
+        // Criptografa a senha digitada para comparar com o banco
+        const senhaHasheada = await hashPassword(senha);
+
+        const { data, error } = await supabase
+          .from('usuarios')
+          .select('*')
+          .eq('email', email)
+          .eq('senha', senhaHasheada)
+          .single();
+
+        if (error || !data) {
+          showAlert("E-mail ou senha incorretos.", "Erro no login", "error");
+        } else {
+          localStorage.setItem(
+            'usuarioLogado',
+            JSON.stringify({
+              id: data.id,
+              nome: data.nome,
+              email: data.email,
+              foto_perfil: data.foto_perfil || data.foto
+            })
+          );
+
+          navigate('/');
+        }
       }
-    } else {
-      const { data, error } = await supabase
-        .from('usuarios')
-        .select('*')
-        .eq('email', email)
-        .eq('senha', senha)
-        .single();
-
-      if (error || !data) {
-        alert("E-mail ou senha incorretos.");
-      } else {
-        alert("Login realizado!");
-
-        localStorage.setItem(
-          'usuarioLogado',
-          JSON.stringify({
-            id: data.id,
-            nome: data.nome,
-            email: data.email,
-            foto_perfil: data.foto_perfil
-          })
-        );
-
-        navigate('/');
-      }
+    } catch (error) {
+      console.error(error);
+      showAlert("Ocorreu um erro no processamento.", "Erro", "error");
     }
 
     setLoading(false);
@@ -61,7 +131,7 @@ export default function Login() {
 
   const handleRecoverPassword = (e) => {
     e.preventDefault();
-    alert("Um email com orientações de redefinição de senha foi enviado!");
+    showAlert("Um email com orientações de redefinição de senha foi enviado!", "Recuperação de Senha", "info");
     setIsRecovering(false);
   };
 
@@ -134,11 +204,11 @@ export default function Login() {
                   style={inputStyle}
                 />
 
+                <label style={labelStyle}>Foto de perfil</label>
                 <input
-                  type="text"
-                  placeholder="URL da foto"
-                  value={fotoPerfil}
-                  onChange={(e) => setFotoPerfil(e.target.value)}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setFotoFile(e.target.files[0])}
                   style={inputStyle}
                 />
               </>
@@ -168,9 +238,18 @@ export default function Login() {
               {loading
                 ? 'Processando...'
                 : isRegistering
-                ? 'Cadastrar'
-                : 'Entrar'}
+                  ? 'Cadastrar'
+                  : 'Entrar'}
             </button>
+
+            {/* Renderização do Modal */}
+            <CustomModal
+              isOpen={modalConfig.isOpen}
+              title={modalConfig.title}
+              message={modalConfig.message}
+              type={modalConfig.type}
+              onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+            />
 
             <p
               style={linkStyle}
@@ -243,3 +322,5 @@ const linkStyle = {
   fontSize: '13px',
   marginTop: '10px'
 };
+
+const labelStyle = { fontSize: '13px', color: '#666', fontWeight: 'bold', marginBottom: '6px', display: 'block' };
