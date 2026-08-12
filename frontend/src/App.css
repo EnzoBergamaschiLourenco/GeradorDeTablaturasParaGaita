@@ -1,5 +1,12 @@
 /* ==========================================================================
    HarmonicaTabs - Design System & Variáveis Globais (Inspirado no Menu)
+   ==========================================================================
+   Só classes explícitas e variáveis CSS — nenhum seletor de tag "solta"
+   (body, h1, p, input, etc.), de propósito: o app inteiro hoje é estilizado
+   via inline style, e uma regra de tag sem classe mudaria a aparência de
+   qualquer elemento que ainda não tenha sido migrado para essas classes.
+   Use as classes abaixo apenas onde o componente foi explicitamente
+   adaptado para elas.
    ========================================================================== */
 :root {
   --bg-page: #f4f7fb;          /* Fundo azul claro/cinza das páginas */
@@ -11,100 +18,15 @@
   --text-light: #94a3b8;       /* Texto auxiliar/labels */
   --border-color: #d8e3f0;     /* Bordas suaves de inputs e divisores */
   --danger: #ff4d4d;           /* Cor para botões de sair/cancelar/alertas */
-  
+
   /* Sombras e Bordas Redondeadas extraídas do Menu */
   --shadow-card: 0 15px 40px rgba(0, 0, 0, 0.08);
   --shadow-button: 0 6px 18px rgba(0, 123, 255, 0.25);
   --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.05);
-  
+
   --radius-lg: 24px;           /* Bordas de cartões grandes */
   --radius-md: 14px;           /* Bordas de inputs e botões principais */
   --radius-sm: 10px;           /* Bordas de pequenos elementos/botões secundários */
-}
-
-/* ==========================================================================
-   Estilos de Reset e Base da Aplicação
-   ========================================================================== */
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-body {
-  background-color: var(--bg-page);
-  font-family: 'Arial', sans-serif;
-  color: var(--text-main);
-  min-height: 100vh;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* Títulos Globais baseados no h1 do Menu */
-h1, h2, h3 {
-  color: var(--primary);
-  font-weight: bold;
-}
-
-h1 { font-size: 36px; margin-bottom: 12px; }
-h2 { font-size: 28px; margin-bottom: 16px; }
-h3 { font-size: 20px; margin-bottom: 14px; color: var(--text-main); }
-
-p {
-  color: var(--text-muted);
-  line-height: 1.6;
-  font-size: 15px;
-}
-
-/* Links e Cliques Globais */
-a, .link-action {
-  color: var(--primary);
-  text-decoration: none;
-  cursor: pointer;
-  transition: color 0.2s ease;
-}
-
-a:hover, .link-action:hover {
-  color: var(--primary-hover);
-  text-decoration: underline;
-}
-
-/* ==========================================================================
-   Componentes de Formulário (Inputs, Textareas, Labels)
-   ========================================================================== */
-label {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-light);
-  margin-bottom: 6px;
-  text-align: left;
-}
-
-input[type="text"],
-input[type="email"],
-input[type="password"],
-textarea,
-select {
-  width: 100%;
-  padding: 14px 18px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-card);
-  color: var(--text-main);
-  font-size: 15px;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-input:focus, textarea:focus, select:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15);
-}
-
-textarea {
-  resize: vertical;
-  min-height: 120px;
 }
 
 /* ==========================================================================
@@ -186,6 +108,7 @@ textarea {
   align-items: center;
   min-height: 100vh;
   padding: 20px;
+  box-sizing: border-box;
 }
 
 /* Caixa principal estilo "Card" (Igual à caixa branca do seu Menu) */
@@ -199,6 +122,7 @@ textarea {
   display: flex;
   flex-direction: column;
   align-items: center;
+  box-sizing: border-box;
 }
 
 /* Container de duas colunas (Perfeito para a tela de CriarTablatura) */
@@ -210,6 +134,7 @@ textarea {
   margin: 40px auto;
   padding: 0 20px;
   flex-wrap: wrap;
+  box-sizing: border-box;
 }
 
 .column-box {
@@ -219,12 +144,14 @@ textarea {
   padding: 35px;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
+  box-sizing: border-box;
 }
 
 /* Grupos de espaçamento de formulários */
 .form-group {
   margin-bottom: 20px;
   width: 100%;
+  box-sizing: border-box;
 }
 
 /* Card menor de Informações (Como a caixa de Perfil no Canto do Menu) */
