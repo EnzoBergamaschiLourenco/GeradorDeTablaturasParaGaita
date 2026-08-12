@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import * as mm from '@magenta/music';
+import { urlTocarParte } from '../services/gaitaApiService';
 
 export const midiToNoteName = (midi) => {
   const notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -79,7 +80,7 @@ export function useMidiPlayer() {
     let firstSeq = null;
 
     for (const parteId of partesIds) {
-      const url = `http://127.0.0.1:8000/midi/play/${midiPath}?partes=${parteId}&_t=${Date.now()}`;
+      const url = urlTocarParte(midiPath, parteId);
       const seq = await mm.urlToNoteSequence(url);
 
       if (!seq || !seq.notes || seq.notes.length === 0) continue;

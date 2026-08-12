@@ -9,6 +9,7 @@ import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
 import { buscarTonsPorTipo, buscarLayoutPorTomETipo } from '../services/gaitaLayoutService';
 import { salvarNovaTablatura, avaliarMidi } from '../services/tablaturaService';
+import { buscarPartesMidi, traduzirTablatura } from '../services/gaitaApiService';
 
 // ================= COMPONENTE PRINCIPAL =================
 export default function MontarTablatura() {
@@ -233,8 +234,7 @@ export default function MontarTablatura() {
     }
     if (midiSelecionado) {
       setIsLoading(true);
-      fetch(`http://127.0.0.1:8000/midi/partes/${midiSelecionado.path}`)
-        .then(res => res.json())
+      buscarPartesMidi(midiSelecionado.path)
         .then(data => {
           setPartesDisponiveis(data.partes);
           setPartesAdicionadas(data.partes);
@@ -269,21 +269,14 @@ export default function MontarTablatura() {
     setIsTraduzindo(true);
     setIsLoading(true);
     try {
-      const response = await fetch(`http://127.0.0.1:8000/midi/traduzir`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          musica_id: musicaId,
-          caminho_completo: midiSelecionado.path,
-          parte_id: parteEncontrada.id,
-          tom_gaita: tomGaita,
-          tipo_gaita: tipoGaita,
-          overrides: null // Na primeira vez manda sem ajustes
-        })
+      const resData = await traduzirTablatura({
+        musica_id: musicaId,
+        caminho_completo: midiSelecionado.path,
+        parte_id: parteEncontrada.id,
+        tom_gaita: tomGaita,
+        tipo_gaita: tipoGaita,
+        overrides: null // Na primeira vez manda sem ajustes
       });
-
-      const resData = await response.json();
-      if (!response.ok) throw new Error(resData.detail || resData.error || `Erro: ${response.status}`);
 
       const data = resData.posicoes; // Array com TODAS as oitavas testadas
 
@@ -348,20 +341,15 @@ export default function MontarTablatura() {
   const confirmarAjustes = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`http://127.0.0.1:8000/midi/traduzir`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          musica_id: musicaId,
-          caminho_completo: midiSelecionado.path,
-          parte_id: parteEmAjuste.id,
-          tom_gaita: tomGaita,
-          tipo_gaita: tipoGaita,
-          // Passamos a oitava desejada escondida no dicionário
-          overrides: { ...mapeamentoUsuario, __target_offset__: String(offsetEmAjuste) }
-        })
+      const resData = await traduzirTablatura({
+        musica_id: musicaId,
+        caminho_completo: midiSelecionado.path,
+        parte_id: parteEmAjuste.id,
+        tom_gaita: tomGaita,
+        tipo_gaita: tipoGaita,
+        // Passamos a oitava desejada escondida no dicionário
+        overrides: { ...mapeamentoUsuario, __target_offset__: String(offsetEmAjuste) }
       });
-      const resData = await response.json();
       const data = resData.posicoes;
 
       // Se deu certo, a API devolveu apenas a opção selecionada com perfeita: true
