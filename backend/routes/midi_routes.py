@@ -6,8 +6,9 @@ from pydantic import BaseModel
 from typing import Optional, Dict
 import os
 
-from services import midi_service
-from services.midi_service import ErroDeNegocio
+from core.errors import ErroDeNegocio
+from core.paths import resolver_caminho_seguro
+from services import midi_file_service, gaita_translation_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ MENSAGEM_ERRO_INESPERADO = "Erro interno ao processar a solicitação."
 @router.get("/midi/partes/{caminho_completo:path}")
 async def get_partes(caminho_completo: str):
     try:
-        partes = midi_service.baixar_e_extrair_partes(caminho_completo)
+        partes = midi_file_service.baixar_e_extrair_partes(caminho_completo)
         return {"partes": partes}
     except (ValueError, ErroDeNegocio) as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -41,7 +42,7 @@ async def exportar_midi(
             import json
             overrides_dict = json.loads(overrides)
 
-        caminho_arquivo = midi_service.exportar_tablatura_para_midi(
+        caminho_arquivo = midi_file_service.exportar_tablatura_para_midi(
             caminho_completo, parte_id, tom, tipo, overrides_dict
         )
         return FileResponse(
@@ -64,14 +65,14 @@ async def tocar_midi(
         lista_partes = partes.split(",") if partes else []
 
         if not lista_partes:
-            caminho = midi_service.resolver_caminho_seguro(caminho_completo)
+            caminho = resolver_caminho_seguro(caminho_completo)
 
             return FileResponse(
                 caminho,
                 media_type="audio/midi"
             )
 
-        caminho_saida = midi_service.exportar_filtro_midi(
+        caminho_saida = midi_file_service.exportar_filtro_midi(
             caminho_completo,
             lista_partes
         )
@@ -100,7 +101,7 @@ class TraducaoRequest(BaseModel):
 @router.post("/midi/traduzir")
 async def traduzir_tablatura(req: TraducaoRequest):
     try:
-        resultado = midi_service.processar_traducao_gaita(
+        resultado = gaita_translation_service.processar_traducao_gaita(
             caminho_completo=req.caminho_completo,
             parte_id=req.parte_id,
             tom=req.tom_gaita,
