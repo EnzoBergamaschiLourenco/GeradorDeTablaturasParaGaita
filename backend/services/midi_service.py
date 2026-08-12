@@ -9,6 +9,16 @@ supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
 ARQUIVOS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../midiarchives'))
 
+
+class ErroDeNegocio(Exception):
+    """Erro esperado do domínio (ex.: layout não encontrado, arquivo inválido).
+
+    As rotas em routes/midi_routes.py devolvem a mensagem deste erro direto
+    para o cliente (HTTP 400), diferente de exceções não previstas, que são
+    logadas no servidor e respondidas com uma mensagem genérica.
+    """
+    pass
+
 # ==========================================================
 # RESOLUÇÃO SEGURA DE CAMINHOS (evita path traversal)
 # ==========================================================
@@ -78,7 +88,7 @@ def baixar_e_extrair_partes(caminho_completo: str):
             with open(caminho_local, "wb") as f:
                 f.write(response)
         except Exception as e:
-            raise Exception(f"Erro ao baixar '{caminho_completo}' do Supabase: {str(e)}")
+            raise ErroDeNegocio(f"Erro ao baixar '{caminho_completo}' do Supabase: {str(e)}")
 
     mid = mido.MidiFile(caminho_local)
     partes = []
@@ -203,7 +213,7 @@ def exportar_filtro_midi(caminho_completo: str, partes_ids: list):
     # --- TRATAMENTO PARA MIDI TIPO 0 (CANAIS) ---
     if mid_original.type == 0 and canais:
         if not mid_original.tracks:
-            raise Exception("Arquivo MIDI não possui tracks.")
+            raise ErroDeNegocio("Arquivo MIDI não possui tracks.")
 
         nova_track = mido.MidiTrack()
         abs_tick = 0
@@ -307,7 +317,7 @@ def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo, overrides=No
                         })
     else:
         if idx_alvo >= len(mid.tracks):
-            raise Exception(f"Track {idx_alvo} não encontrada.")
+            raise ErroDeNegocio(f"Track {idx_alvo} não encontrada.")
         track = mid.tracks[idx_alvo]
         abs_tick = 0
         notas_abertas = {}
@@ -329,12 +339,12 @@ def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo, overrides=No
 
     layout_response = supabase.table("layouts_gaita").select("id").eq("tom", tom).eq("tipo", tipo).execute()
     if not layout_response.data:
-        raise Exception(f"Layout de gaita ({tom} {tipo}) não encontrado no banco de dados.")
+        raise ErroDeNegocio(f"Layout de gaita ({tom} {tipo}) não encontrado no banco de dados.")
 
     layout_id = layout_response.data[0]["id"]
     mapeamento_response = supabase.table("mapeamento_notas").select("nota_musical, comando_gaita").eq("layout_id", layout_id).execute()
     if not mapeamento_response.data:
-        raise Exception(f"Nenhum mapeamento de notas cadastrado para o layout ({tom} {tipo}).")
+        raise ErroDeNegocio(f"Nenhum mapeamento de notas cadastrado para o layout ({tom} {tipo}).")
 
     mapa_gaita = {nota_para_midi(item["nota_musical"]): item["comando_gaita"] for item in mapeamento_response.data}
     comandos_disponiveis = list(set(mapa_gaita.values()))

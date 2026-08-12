@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -5,8 +7,12 @@ from typing import Optional, Dict
 import os
 
 from services import midi_service
+from services.midi_service import ErroDeNegocio
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+MENSAGEM_ERRO_INESPERADO = "Erro interno ao processar a solicitação."
 
 
 @router.get("/midi/partes/{caminho_completo:path}")
@@ -14,8 +20,11 @@ async def get_partes(caminho_completo: str):
     try:
         partes = midi_service.baixar_e_extrair_partes(caminho_completo)
         return {"partes": partes}
-    except Exception as e:
+    except (ValueError, ErroDeNegocio) as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        logger.exception("Erro inesperado em GET /midi/partes/%s", caminho_completo)
+        raise HTTPException(status_code=500, detail=MENSAGEM_ERRO_INESPERADO)
 
 
 @router.get("/midi/exportar/{caminho_completo:path}/{parte_id}")
@@ -40,10 +49,11 @@ async def exportar_midi(
             media_type="audio/midi",
             filename=os.path.basename(caminho_arquivo)
         )
-    except ValueError as e:
+    except (ValueError, ErroDeNegocio) as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Erro inesperado em GET /midi/exportar/%s/%s", caminho_completo, parte_id)
+        raise HTTPException(status_code=500, detail=MENSAGEM_ERRO_INESPERADO)
 
 @router.get("/midi/play/{caminho_completo:path}")
 async def tocar_midi(
@@ -71,10 +81,11 @@ async def tocar_midi(
             media_type="audio/midi"
         )
 
-    except ValueError as e:
+    except (ValueError, ErroDeNegocio) as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Erro inesperado em GET /midi/play/%s", caminho_completo)
+        raise HTTPException(status_code=500, detail=MENSAGEM_ERRO_INESPERADO)
 
 
 class TraducaoRequest(BaseModel):
@@ -101,10 +112,8 @@ async def traduzir_tablatura(req: TraducaoRequest):
             "posicoes": resultado
         }
 
-    except ValueError as e:
+    except (ValueError, ErroDeNegocio) as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+    except Exception:
+        logger.exception("Erro inesperado em POST /midi/traduzir (parte_id=%s)", req.parte_id)
+        raise HTTPException(status_code=500, detail=MENSAGEM_ERRO_INESPERADO)
