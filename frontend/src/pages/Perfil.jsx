@@ -1,17 +1,15 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import CustomModal from '../components/CustomModal';
+import {
+  hashPassword,
+  uploadAvatar,
+  buscarUsuarioPorCredenciais,
+  atualizarPerfil,
+  excluirConta
+} from '../services/authService';
 
 export default function Perfil() {
-  const hashPassword = async (password) => {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  };
-
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
     title: '',
@@ -60,30 +58,6 @@ export default function Perfil() {
   const urlFoto = usuario.foto || usuario.foto_perfil;
 
   // =========================
-  // UPLOAD AVATAR
-  // =========================
-  const uploadAvatar = async (file) => {
-    if (!file) return null;
-
-    const fileName = `${Date.now()}-${file.name}`;
-
-    const { error } = await supabase.storage
-      .from('Fotos de perfil')
-      .upload(fileName, file);
-
-    if (error) {
-      console.error(error);
-      return null;
-    }
-
-    const { data } = supabase.storage
-      .from('Fotos de perfil')
-      .getPublicUrl(fileName);
-
-    return data.publicUrl;
-  };
-
-  // =========================
   // UPDATE PERFIL
   // =========================
   const handleUpdate = async () => {
@@ -95,13 +69,10 @@ export default function Perfil() {
     setLoading(true);
 
     try {
-      const senhaHasheada = await hashPassword(senhaAtual);
-      const { data: userVerify } = await supabase
-        .from('usuarios')
-        .select('*')
-        .eq('email', usuario.email)
-        .eq('senha', senhaHasheada)
-        .single();
+      const { data: userVerify } = await buscarUsuarioPorCredenciais({
+        email: usuario.email,
+        senha: senhaAtual
+      });
 
       if (!userVerify) {
         showAlert("Senha incorreta.", "Erro", "error");
@@ -122,10 +93,7 @@ export default function Perfil() {
         updates.senha = await hashPassword(senhaNova);
       }
 
-      const { error } = await supabase
-        .from('usuarios')
-        .update(updates)
-        .eq('email', usuario.email);
+      const { error } = await atualizarPerfil({ email: usuario.email, updates });
 
       if (error) {
         showAlert(error.message, "Erro", "error");
@@ -167,23 +135,17 @@ export default function Perfil() {
     setLoading(true);
 
     try {
-      const senhaHasheada = await hashPassword(senhaConfirmacaoDelete);
-      const { data: userVerify } = await supabase
-        .from('usuarios')
-        .select('*')
-        .eq('email', usuario.email)
-        .eq('senha', senhaHasheada)
-        .single();
+      const { data: userVerify } = await buscarUsuarioPorCredenciais({
+        email: usuario.email,
+        senha: senhaConfirmacaoDelete
+      });
 
       if (!userVerify) {
         showAlert("Senha incorreta.", "Erro", "error");
         return;
       }
 
-      await supabase
-        .from('usuarios')
-        .delete()
-        .eq('email', usuario.email);
+      await excluirConta({ email: usuario.email });
 
       localStorage.removeItem('usuarioLogado');
       navigate('/login');

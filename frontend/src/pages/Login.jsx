@@ -1,16 +1,7 @@
 import { useState } from 'react';
-import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import CustomModal from '../components/CustomModal';
-
-// Função para criar hash da senha (SHA-256) nativo do navegador
-const hashPassword = async (password) => {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-};
+import { registrarUsuario, buscarUsuarioPorCredenciais } from '../services/authService';
 
 export default function Login() {
   const [modalConfig, setModalConfig] = useState({
@@ -35,30 +26,6 @@ export default function Login() {
   const [fotoFile, setFotoFile] = useState(null); // Mudança para receber o arquivo
 
   // =========================
-  // UPLOAD AVATAR
-  // =========================
-  const uploadAvatar = async (file) => {
-    if (!file) return null;
-
-    const fileName = `${Date.now()}-${file.name}`;
-
-    const { error } = await supabase.storage
-      .from('Fotos de perfil')
-      .upload(fileName, file);
-
-    if (error) {
-      console.error(error);
-      return null;
-    }
-
-    const { data } = supabase.storage
-      .from('Fotos de perfil')
-      .getPublicUrl(fileName);
-
-    return data.publicUrl;
-  };
-
-  // =========================
   // AUTENTICAÇÃO
   // =========================
   const handleAuth = async () => {
@@ -66,27 +33,7 @@ export default function Login() {
 
     try {
       if (isRegistering) {
-        let urlFoto = '';
-
-        // Se o usuário selecionou uma imagem, faz o upload
-        if (fotoFile) {
-          const uploadedUrl = await uploadAvatar(fotoFile);
-          if (uploadedUrl) urlFoto = uploadedUrl;
-        }
-
-        // Criptografa a senha antes de salvar
-        const senhaHasheada = await hashPassword(senha);
-
-        const { error } = await supabase
-          .from('usuarios')
-          .insert([
-            {
-              nome,
-              email,
-              senha: senhaHasheada,
-              foto_perfil: urlFoto
-            }
-          ]);
+        const { error } = await registrarUsuario({ nome, email, senha, fotoFile });
 
         if (error) {
           showAlert("Erro ao registrar: Email já cadastrado ou dados inválidos.", "Erro no cadastro", "error");
@@ -95,15 +42,7 @@ export default function Login() {
           setIsRegistering(false);
         }
       } else {
-        // Criptografa a senha digitada para comparar com o banco
-        const senhaHasheada = await hashPassword(senha);
-
-        const { data, error } = await supabase
-          .from('usuarios')
-          .select('*')
-          .eq('email', email)
-          .eq('senha', senhaHasheada)
-          .single();
+        const { data, error } = await buscarUsuarioPorCredenciais({ email, senha });
 
         if (error || !data) {
           showAlert("E-mail ou senha incorretos.", "Erro no login", "error");
