@@ -10,6 +10,33 @@ supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 ARQUIVOS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../midiarchives'))
 
 # ==========================================================
+# RESOLUÇÃO SEGURA DE CAMINHOS (evita path traversal)
+# ==========================================================
+def _garantir_dentro_da_raiz(caminho_absoluto: str) -> str:
+    """Garante que o caminho resolvido permanece dentro de ARQUIVOS_PATH."""
+    raiz_resolvida = os.path.realpath(ARQUIVOS_PATH)
+    caminho_resolvido = os.path.realpath(caminho_absoluto)
+    try:
+        dentro_da_raiz = os.path.commonpath([caminho_resolvido, raiz_resolvida]) == raiz_resolvida
+    except ValueError:
+        # commonpath levanta ValueError quando os caminhos estão em drives diferentes (Windows)
+        dentro_da_raiz = False
+
+    if not dentro_da_raiz:
+        raise ValueError(f"Caminho inválido ou fora do diretório permitido: '{caminho_absoluto}'")
+
+    return caminho_resolvido
+
+
+def resolver_caminho_seguro(caminho_relativo: str) -> str:
+    """Resolve caminho_relativo dentro de ARQUIVOS_PATH, rejeitando tentativas de escape (ex.: '../').
+
+    Público (sem underscore) porque também é usado por routes/midi_routes.py.
+    """
+    candidato = os.path.join(ARQUIVOS_PATH, caminho_relativo)
+    return _garantir_dentro_da_raiz(candidato)
+
+# ==========================================================
 # FUNÇÕES AUXILIARES DE TEMPO (usadas apenas pela tradução)
 # ==========================================================
 def _build_tempo_map(mid):
@@ -43,7 +70,7 @@ def _tick_to_second(target_tick, tpb, tempo_map):
 # LISTAGEM DE PARTES (tracks para tipo 1, canais para tipo 0)
 # ==========================================================
 def baixar_e_extrair_partes(caminho_completo: str):
-    caminho_local = os.path.join(ARQUIVOS_PATH, caminho_completo)
+    caminho_local = resolver_caminho_seguro(caminho_completo)
     os.makedirs(os.path.dirname(caminho_local), exist_ok=True)
     if not os.path.exists(caminho_local):
         try:
@@ -80,7 +107,7 @@ def baixar_e_extrair_partes(caminho_completo: str):
 # ==========================================================
 def extrair_canal_midi(caminho_completo: str, canal: int):
     """Retorna lista de eventos (notas + config) para o canal fornecido."""
-    caminho_local = os.path.join(ARQUIVOS_PATH, caminho_completo)
+    caminho_local = resolver_caminho_seguro(caminho_completo)
     mid = mido.MidiFile(caminho_local)
     tpb = mid.ticks_per_beat
     tempo_map = _build_tempo_map(mid)
@@ -158,10 +185,12 @@ def construir_midi_canal(eventos_notas, eventos_config, tpb, tempo_map, nome_sai
 # EXPORTAÇÃO DE MIDI LIMPO (suporta track e channel)
 # ==========================================================
 def exportar_filtro_midi(caminho_completo: str, partes_ids: list):
-    caminho_origem = os.path.join(ARQUIVOS_PATH, caminho_completo)
+    caminho_origem = resolver_caminho_seguro(caminho_completo)
     pasta_base = os.path.dirname(caminho_origem)
     nome_saida = f"temp_{'_'.join(partes_ids)}_{os.path.basename(caminho_completo)}"
-    caminho_saida = os.path.join(pasta_base, nome_saida)
+    # partes_ids também é entrada externa (query param 'partes'); valida que o
+    # nome de saída gerado a partir dela não escapa de ARQUIVOS_PATH.
+    caminho_saida = _garantir_dentro_da_raiz(os.path.join(pasta_base, nome_saida))
 
     if os.path.exists(caminho_saida):
         os.remove(caminho_saida)
@@ -249,7 +278,7 @@ def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo, overrides=No
     if "__target_offset__" in overrides:
         target_offset = int(overrides.pop("__target_offset__"))
 
-    caminho_local = os.path.join(ARQUIVOS_PATH, caminho_completo)
+    caminho_local = resolver_caminho_seguro(caminho_completo)
     mid = mido.MidiFile(caminho_local)
     tpb = mid.ticks_per_beat
     tempo_map = _build_tempo_map(mid)

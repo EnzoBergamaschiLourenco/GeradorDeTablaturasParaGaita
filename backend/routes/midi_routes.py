@@ -40,6 +40,8 @@ async def exportar_midi(
             media_type="audio/midi",
             filename=os.path.basename(caminho_arquivo)
         )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -52,10 +54,7 @@ async def tocar_midi(
         lista_partes = partes.split(",") if partes else []
 
         if not lista_partes:
-            caminho = os.path.join(
-                midi_service.ARQUIVOS_PATH,
-                caminho_completo
-            )
+            caminho = midi_service.resolver_caminho_seguro(caminho_completo)
 
             return FileResponse(
                 caminho,
@@ -72,6 +71,8 @@ async def tocar_midi(
             media_type="audio/midi"
         )
 
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -100,6 +101,8 @@ async def traduzir_tablatura(req: TraducaoRequest):
             "posicoes": resultado
         }
 
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=500,
