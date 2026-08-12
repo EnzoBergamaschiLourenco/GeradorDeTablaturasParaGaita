@@ -7,6 +7,8 @@ import { supabase } from '../supabaseClient';
 import CustomModal from '../components/CustomModal';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
+import { buscarTonsPorTipo, buscarLayoutPorTomETipo } from '../services/gaitaLayoutService';
+import { salvarNovaTablatura, avaliarMidi } from '../services/tablaturaService';
 
 // ================= COMPONENTE PRINCIPAL =================
 export default function MontarTablatura() {
@@ -148,12 +150,10 @@ export default function MontarTablatura() {
 
     setIsLoading(true);
     try {
-      const { data: layout, error: layoutError } = await supabase
-        .from('layouts_gaita')
-        .select('id')
-        .eq('tipo', tipoGaita)
-        .eq('tom', tomGaita)
-        .single();
+      const { data: layout, error: layoutError } = await buscarLayoutPorTomETipo({
+        tom: tomGaita,
+        tipo: tipoGaita
+      });
 
       if (layoutError || !layout) {
         showAlert("Erro ao encontrar o layout da gaita. Verifique se o tom e tipo são válidos.", "Erro", "error");
@@ -163,29 +163,25 @@ export default function MontarTablatura() {
 
       const dataAtual = new Date().toISOString().split('T')[0];
 
-      const { error: insertError } = await supabase
-        .from('tablaturas')
-        .insert({
-          tablatura: textoTablatura,
-          data: dataAtual,
-          usuario_id: usuario.id,
-          midi_id: midiSelecionado?.id,
-          musica_id: musicaId,
-          gaita_id: layout.id
-        });
+      const { error: insertError } = await salvarNovaTablatura({
+        tablatura: textoTablatura,
+        data: dataAtual,
+        usuarioId: usuario.id,
+        midiId: midiSelecionado?.id,
+        musicaId: musicaId,
+        gaitaId: layout.id
+      });
 
       if (insertError) {
         console.error(insertError);
         showAlert("Erro ao salvar tablatura.", "Erro", "error");
       } else {
         if (midiSelecionado?.id) {
-          const { error: ratingError } = await supabase
-            .from('avaliacoes_midi')
-            .insert({
-              usuario_id: usuario.id,
-              midi_id: midiSelecionado.id,
-              nota: notaAvaliacao
-            });
+          const { error: ratingError } = await avaliarMidi({
+            usuarioId: usuario.id,
+            midiId: midiSelecionado.id,
+            nota: notaAvaliacao
+          });
 
           if (ratingError) {
             console.error("Erro ao salvar a avaliação do MIDI:", ratingError);
@@ -540,15 +536,12 @@ export default function MontarTablatura() {
   // ================= Buscar tons da gaita baseado no tipo selecionado =================
 
   useEffect(() => {
-    async function buscarTonsPorTipo() {
+    async function carregarTonsDoTipo() {
       if (!tipoGaita) return;
       setCarregandoTons(true);
 
       try {
-        const { data, error } = await supabase
-          .from('layouts_gaita')
-          .select('tom')
-          .eq('tipo', tipoGaita);
+        const { data, error } = await buscarTonsPorTipo(tipoGaita);
 
         if (error) {
           console.error("Erro ao buscar tons no Supabase:", error);
@@ -564,7 +557,7 @@ export default function MontarTablatura() {
       }
     }
 
-    buscarTonsPorTipo();
+    carregarTonsDoTipo();
   }, [tipoGaita]);
 
   // ================= RENDERIZAÇÃO =================

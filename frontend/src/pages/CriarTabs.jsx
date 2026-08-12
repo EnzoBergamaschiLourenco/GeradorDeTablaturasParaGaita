@@ -1,9 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../supabaseClient';
 import CustomModal from '../components/CustomModal';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
+import {
+  buscarSugestoesMusicas,
+  buscarMusicaExata,
+  criarMusica,
+  buscarArquivosMidiPorMusica,
+  buscarAvaliacoesMidi,
+  uploadArquivoMidi,
+  registrarArquivoMidi
+} from '../services/musicaService';
 
 export default function CriarTabs() {
   const { modalConfig, showAlert, closeModal } = useModal();
@@ -39,11 +47,7 @@ export default function CriarTabs() {
       const termo = musica.trim();
       if (termo.length < 2) return;
 
-      const { data, error } = await supabase
-        .from('musicas')
-        .select('id, nome, autor, letra')
-        .ilike('nome', `%${termo}%`)
-        .limit(5);
+      const { data, error } = await buscarSugestoesMusicas(termo);
 
       if (error) {
         console.error("Erro Supabase:", error);
@@ -66,20 +70,14 @@ export default function CriarTabs() {
 
   // ===== BUSCA DE MATCH EXATO E CÁLCULO DE MÉDIA DE ESTRELAS =====
   const buscarMidis = async (id) => {
-    const { data: midis, error } = await supabase
-      .from('arquivos_midi')
-      .select('id, arquivo_midi, path')
-      .eq('musica_id', id);
+    const { data: midis, error } = await buscarArquivosMidiPorMusica(id);
 
     if (!error && midis) {
       const midiIds = midis.map(m => m.id);
 
       if (midiIds.length > 0) {
         // Busca as avaliações dos arquivos MIDI encontrados
-        const { data: avaliacoes, error: errorAvaliacoes } = await supabase
-          .from('avaliacoes_midi')
-          .select('midi_id, nota')
-          .in('midi_id', midiIds);
+        const { data: avaliacoes, error: errorAvaliacoes } = await buscarAvaliacoesMidi(midiIds);
 
         if (!errorAvaliacoes && avaliacoes) {
           // Atribui a média calculada a cada arquivo
@@ -106,12 +104,7 @@ export default function CriarTabs() {
         return;
       }
 
-      const { data } = await supabase
-        .from('musicas')
-        .select('id, letra')
-        .eq('nome', musica.trim())
-        .eq('autor', autorMusica.trim())
-        .maybeSingle();
+      const { data } = await buscarMusicaExata({ nome: musica.trim(), autor: autorMusica.trim() });
 
       if (data) {
         setMusicaId(data.id);
@@ -144,11 +137,11 @@ export default function CriarTabs() {
           return;
         }
 
-        const { data: novaMusica, error: errMusica } = await supabase
-          .from('musicas')
-          .insert([{ nome: musica.trim(), autor: autorMusica.trim(), letra: letra.trim() }])
-          .select('id')
-          .single();
+        const { data: novaMusica, error: errMusica } = await criarMusica({
+          nome: musica.trim(),
+          autor: autorMusica.trim(),
+          letra: letra.trim()
+        });
 
         if (errMusica) throw errMusica;
         currentMusicaId = novaMusica.id;
@@ -163,17 +156,15 @@ export default function CriarTabs() {
 
       const fileName = `${Date.now()}_${nomeSeguro}`;
       const filePath = `${currentMusicaId}/${fileName}`;
-      const { error: uploadError, data } = await supabase.storage
-        .from('Arquivos MIDI')
-        .upload(filePath, file);
+      const { error: uploadError, data } = await uploadArquivoMidi({ filePath, file });
 
       if (uploadError) throw uploadError;
 
-      const { data: novoMidi, error: insertError } = await supabase
-        .from('arquivos_midi')
-        .insert([{ arquivo_midi: file.name, musica_id: currentMusicaId, path: data.path }])
-        .select()
-        .single();
+      const { data: novoMidi, error: insertError } = await registrarArquivoMidi({
+        arquivoMidi: file.name,
+        musicaId: currentMusicaId,
+        path: data.path
+      });
       if (insertError) throw insertError;
 
       buscarMidis(currentMusicaId);
@@ -215,11 +206,11 @@ export default function CriarTabs() {
           return;
         }
 
-        const { data: novaMusica, error: errMusica } = await supabase
-          .from('musicas')
-          .insert([{ nome: musica.trim(), autor: autorMusica.trim(), letra: letra.trim() }])
-          .select('id')
-          .single();
+        const { data: novaMusica, error: errMusica } = await criarMusica({
+          nome: musica.trim(),
+          autor: autorMusica.trim(),
+          letra: letra.trim()
+        });
 
         if (errMusica) throw errMusica;
         currentMusicaId = novaMusica.id;

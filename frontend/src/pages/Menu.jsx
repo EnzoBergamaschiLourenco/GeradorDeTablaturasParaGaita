@@ -1,9 +1,10 @@
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { supabase } from '../supabaseClient'; // Ajuste o caminho se necessário
 import CustomModal from '../components/CustomModal';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
+import { buscarTonsPorTipo } from '../services/gaitaLayoutService';
+import { buscarTablaturas } from '../services/tablaturaService';
 
 export default function Menu() {
 
@@ -62,15 +63,7 @@ export default function Menu() {
       setCarregandoTonsFiltro(true);
 
       try {
-        let query = supabase
-          .from('layouts_gaita')
-          .select('tom');
-
-        if (filtroTipo) {
-          query = query.eq('tipo', filtroTipo);
-        }
-
-        const { data, error } = await query;
+        const { data, error } = await buscarTonsPorTipo(filtroTipo);
 
         if (error) {
           console.error('Erro ao buscar tons disponíveis:', error);
@@ -115,72 +108,20 @@ export default function Menu() {
   };
 
   // Função para buscar tablaturas no Supabase
-  const buscarTablaturas = async (termoInicial = '') => {
+  const handleBuscarTablaturas = async (termoInicial = '') => {
     setCarregando(true);
     setPesquisaAtiva(true);
 
     try {
       const nomeParaBuscar = filtroNomeMusica || termoInicial;
 
-      // Usa !inner para garantir que os filtros nas relações sejam aplicados.
-      const joinMusicas = (nomeParaBuscar || filtroAutorMusica) ? '!inner' : '';
-      const joinUsuarios = filtroAutorTab ? '!inner' : '';
-      const joinGaita = (filtroTom || filtroTipo) ? '!inner' : '';
-
-      let query = supabase.from('tablaturas').select(`
-        id,
-        tablatura,
-        data,
-        usuario_id,
-        musica_id,
-        midi_id,
-        gaita_id,
-        musicas${joinMusicas} (
-          id,
-          nome,
-          autor
-        ),
-        usuarios${joinUsuarios} (
-          id,
-          nome
-        ),
-        layouts_gaita${joinGaita} (
-          id,
-          tom,
-          tipo
-        ),
-        arquivos_midi (
-          id,
-          arquivo_midi
-        ),
-        curtidas (
-          id,
-          bool_curtida
-        )
-      `);
-
-      // Filtros nas tabelas relacionadas
-      if (nomeParaBuscar) {
-        query = query.ilike('musicas.nome', `%${nomeParaBuscar}%`);
-      }
-
-      if (filtroAutorMusica) {
-        query = query.ilike('musicas.autor', `%${filtroAutorMusica}%`);
-      }
-
-      if (filtroAutorTab) {
-        query = query.ilike('usuarios.nome', `%${filtroAutorTab}%`);
-      }
-
-      if (filtroTom) {
-        query = query.eq('layouts_gaita.tom', filtroTom);
-      }
-
-      if (filtroTipo) {
-        query = query.eq('layouts_gaita.tipo', filtroTipo);
-      }
-
-      const { data, error } = await query;
+      const { data, error } = await buscarTablaturas({
+        nome: nomeParaBuscar,
+        autorMusica: filtroAutorMusica,
+        autorTab: filtroAutorTab,
+        tom: filtroTom,
+        tipo: filtroTipo
+      });
 
       if (error) {
         console.error('Erro ao buscar no Supabase:', error);
@@ -224,7 +165,7 @@ export default function Menu() {
 
     if (termo) {
       setFiltroNomeMusica(termo);
-      buscarTablaturas(termo);
+      handleBuscarTablaturas(termo);
     }
   };
 
@@ -670,7 +611,7 @@ export default function Menu() {
             </div>
 
             <button
-              onClick={() => buscarTablaturas()}
+              onClick={() => handleBuscarTablaturas()}
               style={{
                 width: '100%',
                 padding: '12px',

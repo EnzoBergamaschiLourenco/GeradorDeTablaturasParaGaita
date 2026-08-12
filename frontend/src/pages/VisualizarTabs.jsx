@@ -1,9 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { supabase } from '../supabaseClient';
 import CustomModal from '../components/CustomModal';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
+import {
+  contarCurtidas,
+  usuarioCurtiu,
+  removerCurtida,
+  adicionarCurtida,
+  atualizarTextoTablatura,
+  excluirTablatura
+} from '../services/tablaturaService';
 
 export default function VisualizarTabs() {
   const { modalConfig, showAlert, showConfirm, closeModal } = useModal();
@@ -53,23 +60,13 @@ Pleased the Lord
       if (!tabData.id) return;
 
       // Busca total de curtidas reais
-      const { count } = await supabase
-        .from('curtidas')
-        .select('*', { count: 'exact', head: true })
-        .eq('tablatura_id', tabData.id)
-        .eq('bool_curtida', true);
+      const { count } = await contarCurtidas(tabData.id);
 
       setTotalCurtidas(count || 0);
 
       // Checa se o usuário atual curtiu
       if (usuario) {
-        const { data } = await supabase
-          .from('curtidas')
-          .select('id')
-          .eq('tablatura_id', tabData.id)
-          .eq('usuario_id', usuario.id)
-          .eq('bool_curtida', true)
-          .maybeSingle();
+        const { data } = await usuarioCurtiu({ tablaturaId: tabData.id, usuarioId: usuario.id });
 
         if (data) setCurtido(true);
       }
@@ -90,10 +87,7 @@ Pleased the Lord
     try {
       if (curtido) {
         // Remove a curtida
-        const { error } = await supabase
-          .from('curtidas')
-          .delete()
-          .match({ usuario_id: usuario.id, tablatura_id: tabData.id });
+        const { error } = await removerCurtida({ usuarioId: usuario.id, tablaturaId: tabData.id });
 
         if (!error) {
           setCurtido(false);
@@ -101,13 +95,7 @@ Pleased the Lord
         }
       } else {
         // Adiciona a curtida
-        const { error } = await supabase
-          .from('curtidas')
-          .insert({
-            usuario_id: usuario.id,
-            tablatura_id: tabData.id,
-            bool_curtida: true
-          });
+        const { error } = await adicionarCurtida({ usuarioId: usuario.id, tablaturaId: tabData.id });
 
         if (!error) {
           setCurtido(true);
@@ -126,10 +114,7 @@ Pleased the Lord
     }
 
     setSalvando(true);
-    const { error } = await supabase
-      .from('tablaturas')
-      .update({ tablatura: textoTablatura })
-      .eq('id', tabData.id);
+    const { error } = await atualizarTextoTablatura({ id: tabData.id, tablatura: textoTablatura });
 
     setSalvando(false);
 
@@ -148,17 +133,7 @@ Pleased the Lord
       type: 'warning',
       onConfirm: async () => {
         try {
-          // Como o schema não tem ON DELETE CASCADE, precisamos deletar as curtidas vinculadas primeiro
-          await supabase
-            .from('curtidas')
-            .delete()
-            .eq('tablatura_id', tabData.id);
-
-          // Agora deletamos a tablatura
-          const { error } = await supabase
-            .from('tablaturas')
-            .delete()
-            .eq('id', tabData.id);
+          const { error } = await excluirTablatura(tabData.id);
 
           if (error) throw error;
 
