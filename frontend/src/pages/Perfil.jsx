@@ -94,61 +94,65 @@ export default function Perfil() {
 
     setLoading(true);
 
-    const senhaHasheada = await hashPassword(senhaAtual);
-    const { data: userVerify } = await supabase
-      .from('usuarios')
-      .select('*')
-      .eq('email', usuario.email)
-      .eq('senha', senhaHasheada)
-      .single();
+    try {
+      const senhaHasheada = await hashPassword(senhaAtual);
+      const { data: userVerify } = await supabase
+        .from('usuarios')
+        .select('*')
+        .eq('email', usuario.email)
+        .eq('senha', senhaHasheada)
+        .single();
 
-    if (!userVerify) {
-      showAlert("Senha incorreta.", "Erro", "error");
+      if (!userVerify) {
+        showAlert("Senha incorreta.", "Erro", "error");
+        return;
+      }
+
+      let foto_perfil_atualizada = urlFoto || '';
+
+      // se enviou nova imagem
+      if (fotoFile) {
+        const uploadedUrl = await uploadAvatar(fotoFile);
+        if (uploadedUrl) foto_perfil_atualizada = uploadedUrl;
+      }
+
+      const updates = { nome, foto_perfil: foto_perfil_atualizada };
+
+      if (senhaNova.trim() !== '') {
+        updates.senha = await hashPassword(senhaNova);
+      }
+
+      const { error } = await supabase
+        .from('usuarios')
+        .update(updates)
+        .eq('email', usuario.email);
+
+      if (error) {
+        showAlert(error.message, "Erro", "error");
+      } else {
+        // Garante compatibilidade total salvando tanto em 'foto' quanto em 'foto_perfil'
+        const novoUsuario = {
+          ...usuario,
+          nome,
+          foto: foto_perfil_atualizada,
+          foto_perfil: foto_perfil_atualizada
+        };
+
+        setUsuario(novoUsuario);
+        localStorage.setItem('usuarioLogado', JSON.stringify(novoUsuario));
+
+        showAlert("Perfil atualizado!", "Sucesso", "success");
+        setIsEditing(false);
+        setSenhaAtual('');
+        setSenhaNova('');
+        setFotoFile(null);
+      }
+    } catch (error) {
+      console.error(error);
+      showAlert("Ocorreu um erro ao atualizar o perfil.", "Erro", "error");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    let foto_perfil_atualizada = urlFoto || '';
-
-    // se enviou nova imagem
-    if (fotoFile) {
-      const uploadedUrl = await uploadAvatar(fotoFile);
-      if (uploadedUrl) foto_perfil_atualizada = uploadedUrl;
-    }
-
-    const updates = { nome, foto_perfil: foto_perfil_atualizada };
-
-    if (senhaNova.trim() !== '') {
-      updates.senha = senhaNova;
-    }
-
-    const { error } = await supabase
-      .from('usuarios')
-      .update(updates)
-      .eq('email', usuario.email);
-
-    if (error) {
-      showAlert(error.message, "Erro", "error");
-    } else {
-      // Garante compatibilidade total salvando tanto em 'foto' quanto em 'foto_perfil'
-      const novoUsuario = {
-        ...usuario,
-        nome,
-        foto: foto_perfil_atualizada,
-        foto_perfil: foto_perfil_atualizada
-      };
-
-      setUsuario(novoUsuario);
-      localStorage.setItem('usuarioLogado', JSON.stringify(novoUsuario));
-
-      showAlert("Perfil atualizado!", "Sucesso", "success");
-      setIsEditing(false);
-      setSenhaAtual('');
-      setSenhaNova('');
-      setFotoFile(null);
-    }
-
-    setLoading(false);
   };
 
   // =========================
@@ -162,27 +166,33 @@ export default function Perfil() {
 
     setLoading(true);
 
-    const senhaHasheada = await hashPassword(senhaConfirmacaoDelete);
-    const { data: userVerify } = await supabase
-      .from('usuarios')
-      .select('*')
-      .eq('email', usuario.email)
-      .eq('senha', senhaHasheada)
-      .single();
+    try {
+      const senhaHasheada = await hashPassword(senhaConfirmacaoDelete);
+      const { data: userVerify } = await supabase
+        .from('usuarios')
+        .select('*')
+        .eq('email', usuario.email)
+        .eq('senha', senhaHasheada)
+        .single();
 
-    if (!userVerify) {
-      showAlert("Senha incorreta.", "Erro", "error");
+      if (!userVerify) {
+        showAlert("Senha incorreta.", "Erro", "error");
+        return;
+      }
+
+      await supabase
+        .from('usuarios')
+        .delete()
+        .eq('email', usuario.email);
+
+      localStorage.removeItem('usuarioLogado');
+      navigate('/login');
+    } catch (error) {
+      console.error(error);
+      showAlert("Ocorreu um erro ao excluir a conta.", "Erro", "error");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    await supabase
-      .from('usuarios')
-      .delete()
-      .eq('email', usuario.email);
-
-    localStorage.removeItem('usuarioLogado');
-    navigate('/login');
   };
 
   // =========================
