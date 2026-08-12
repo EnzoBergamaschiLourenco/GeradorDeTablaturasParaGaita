@@ -2,22 +2,15 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import CustomModal from '../components/CustomModal';
+import { useAuthUser } from '../hooks/useAuthUser';
+import { useModal } from '../hooks/useModal';
 
 export default function CriarTabs() {
-  const [modalConfig, setModalConfig] = useState({
-    isOpen: false,
-    title: '',
-    message: '',
-    type: 'info'
-  });
-
-  const showAlert = (message, title = 'Aviso', type = 'info') => {
-    setModalConfig({ isOpen: true, title, message, type });
-  };
+  const { modalConfig, showAlert, closeModal } = useModal();
 
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [usuario, setUsuario] = useState(null);
+  const { usuario } = useAuthUser();
 
   const [musica, setMusica] = useState('');
   const [autorMusica, setAutorMusica] = useState('');
@@ -32,11 +25,6 @@ export default function CriarTabs() {
 
   const [sugestoes, setSugestoes] = useState([]);
   const debounceRef = useRef(null);
-
-  useEffect(() => {
-    const dadosSalvos = localStorage.getItem('usuarioLogado');
-    if (dadosSalvos) setUsuario(JSON.parse(dadosSalvos));
-  }, []);
 
   // ===== BUSCA COM DEBOUNCE PARA SUGESTÕES =====
   useEffect(() => {
@@ -264,7 +252,8 @@ export default function CriarTabs() {
           title={modalConfig.title}
           message={modalConfig.message}
           type={modalConfig.type}
-          onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+          onConfirm={modalConfig.onConfirm}
+          onClose={closeModal}
         />
         {/* COLUNA ESQUERDA: FORMULÁRIO */}
         <div style={leftColumn}>

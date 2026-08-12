@@ -8,28 +8,20 @@ import {
   atualizarPerfil,
   excluirConta
 } from '../services/authService';
+import { useAuthUser } from '../hooks/useAuthUser';
+import { useModal } from '../hooks/useModal';
 
 export default function Perfil() {
-  const [modalConfig, setModalConfig] = useState({
-    isOpen: false,
-    title: '',
-    message: '',
-    type: 'info'
-  });
-
-  const showAlert = (message, title = 'Aviso', type = 'info') => {
-    setModalConfig({ isOpen: true, title, message, type });
-  };
+  const { modalConfig, showAlert, closeModal } = useModal();
 
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const navigate = useNavigate();
 
-  // Nova estrutura de estado solicitada
-  const [usuario, setUsuario] = useState(null);
+  const { usuario, setUsuario, logout } = useAuthUser();
 
-  const [nome, setNome] = useState('');
+  const [nome, setNome] = useState(usuario?.nome || '');
   const [fotoFile, setFotoFile] = useState(null);
 
   const [senhaAtual, setSenhaAtual] = useState('');
@@ -37,16 +29,11 @@ export default function Perfil() {
   const [senhaConfirmacaoDelete, setSenhaConfirmacaoDelete] = useState('');
 
   useEffect(() => {
-    const dadosSalvos = localStorage.getItem('usuarioLogado');
-    if (dadosSalvos) {
-      const user = JSON.parse(dadosSalvos);
-      setUsuario(user);
-      setNome(user.nome || '');
-    } else {
-      // Redireciona para a tela de login caso não esteja logado
+    // Redireciona para a tela de login caso não esteja logado
+    if (!usuario) {
       navigate('/login');
     }
-  }, [navigate]);
+  }, [usuario, navigate]);
 
   // Bloqueia a renderização de componentes filhos enquanto o useEffect valida o login,
   // impedindo erros de "cannot read property of null"
@@ -107,7 +94,6 @@ export default function Perfil() {
         };
 
         setUsuario(novoUsuario);
-        localStorage.setItem('usuarioLogado', JSON.stringify(novoUsuario));
 
         showAlert("Perfil atualizado!", "Sucesso", "success");
         setIsEditing(false);
@@ -147,7 +133,7 @@ export default function Perfil() {
 
       await excluirConta({ email: usuario.email });
 
-      localStorage.removeItem('usuarioLogado');
+      logout();
       navigate('/login');
     } catch (error) {
       console.error(error);
@@ -167,7 +153,8 @@ export default function Perfil() {
         title={modalConfig.title}
         message={modalConfig.message}
         type={modalConfig.type}
-        onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+        onConfirm={modalConfig.onConfirm}
+        onClose={closeModal}
       />
       <div style={cardStyle}>
         <h1 style={{ color: '#007bff' }}>Meu Perfil</h1>

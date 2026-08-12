@@ -2,25 +2,17 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import CustomModal from '../components/CustomModal';
+import { useAuthUser } from '../hooks/useAuthUser';
+import { useModal } from '../hooks/useModal';
 
 export default function VisualizarTabs() {
-  const [modalConfig, setModalConfig] = useState({
-    isOpen: false,
-    title: '',
-    message: '',
-    type: 'info',
-    onConfirm: null
-  });
-
-  const showAlert = (message, title = 'Aviso', type = 'info') => {
-    setModalConfig({ isOpen: true, title, message, type });
-  };
+  const { modalConfig, showAlert, showConfirm, closeModal } = useModal();
 
   const navigate = useNavigate();
   const location = useLocation();
   const tabRecebida = location.state?.tab;
 
-  const [usuario, setUsuario] = useState(null);
+  const { usuario } = useAuthUser();
   const [curtido, setCurtido] = useState(false);
   const [totalCurtidas, setTotalCurtidas] = useState(0);
 
@@ -52,10 +44,6 @@ Pleased the Lord
   const isOwner = usuario && tabData.usuario_id && usuario.id === tabData.usuario_id;
 
   useEffect(() => {
-    const dadosSalvos = localStorage.getItem('usuarioLogado');
-    if (dadosSalvos) {
-      setUsuario(JSON.parse(dadosSalvos));
-    }
     setTextoTablatura(tabData.conteudoOriginal);
   }, []);
 
@@ -155,10 +143,8 @@ Pleased the Lord
   };
 
   const handleExcluir = async () => {
-    setModalConfig({
-      isOpen: true,
-      title: 'Sair da conta',
-      message: 'Deseja mesmo sair?',
+    showConfirm('Tem certeza que deseja excluir esta tablatura? Essa ação não pode ser desfeita.', {
+      title: 'Excluir tablatura',
       type: 'warning',
       onConfirm: async () => {
         try {
@@ -205,7 +191,7 @@ Pleased the Lord
         message={modalConfig.message}
         type={modalConfig.type}
         onConfirm={modalConfig.onConfirm}
-        onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+        onClose={closeModal}
       />
       {/* Botão Voltar - Canto Esquerdo */}
       <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 10 }}>

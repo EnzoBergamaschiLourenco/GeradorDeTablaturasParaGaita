@@ -2,18 +2,16 @@ import { useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient'; // Ajuste o caminho se necessário
 import CustomModal from '../components/CustomModal';
+import { useAuthUser } from '../hooks/useAuthUser';
+import { useModal } from '../hooks/useModal';
 
 export default function Menu() {
 
-  const [modalConfirmConfig, setModalConfirmConfig] = useState({
-    isOpen: false,
-    message: '',
-    onConfirm: null
-  });
+  const { modalConfig, showConfirm, closeModal } = useModal();
 
   const navigate = useNavigate();
 
-  const [usuario, setUsuario] = useState(null);
+  const { usuario, logout } = useAuthUser();
   const [busca, setBusca] = useState('');
   const [mostrarSugestao, setMostrarSugestao] = useState(false);
 
@@ -41,14 +39,6 @@ export default function Menu() {
     'Cromática 14',
     'Cromática 16'
   ];
-
-  useEffect(() => {
-    const dadosSalvos = localStorage.getItem('usuarioLogado');
-
-    if (dadosSalvos) {
-      setUsuario(JSON.parse(dadosSalvos));
-    }
-  }, []);
 
   // Sugestão de acesso à página de visualização
   useEffect(() => {
@@ -113,15 +103,12 @@ export default function Menu() {
   }, [filtroTipo]);
 
   const handleLogout = () => {
-    setModalConfirmConfig({
-      isOpen: true,
+    showConfirm('Deseja mesmo sair?', {
       title: 'Sair da conta',
-      message: 'Deseja mesmo sair?',
       type: 'warning',
       onConfirm: () => {
         // O que acontece se o usuário clicar em "Confirmar"
-        localStorage.removeItem('usuarioLogado');
-        setUsuario(null);
+        logout();
         navigate('/login');
       }
     });
@@ -367,12 +354,12 @@ export default function Menu() {
 
       {/* CONTEÚDO PRINCIPAL */}
       <CustomModal
-        isOpen={modalConfirmConfig.isOpen}
-        title={modalConfirmConfig.title}
-        message={modalConfirmConfig.message}
-        type={modalConfirmConfig.type}
-        onConfirm={modalConfirmConfig.onConfirm}
-        onClose={() => setModalConfirmConfig({ ...modalConfirmConfig, isOpen: false })}
+        isOpen={modalConfig.isOpen}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        type={modalConfig.type}
+        onConfirm={modalConfig.onConfirm}
+        onClose={closeModal}
       />
       <div
         style={{

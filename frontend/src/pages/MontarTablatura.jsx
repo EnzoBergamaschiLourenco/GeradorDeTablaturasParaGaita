@@ -5,19 +5,12 @@ import * as s from '../styles/MontarTablaturaStyles';
 import { useMidiPlayer, midiToNoteName } from '../hooks/useMidiPlayer';
 import { supabase } from '../supabaseClient';
 import CustomModal from '../components/CustomModal';
+import { useAuthUser } from '../hooks/useAuthUser';
+import { useModal } from '../hooks/useModal';
 
 // ================= COMPONENTE PRINCIPAL =================
 export default function MontarTablatura() {
-  const [modalConfig, setModalConfig] = useState({
-    isOpen: false,
-    title: '',
-    message: '',
-    type: 'info'
-  });
-
-  const showAlert = (message, title = 'Aviso', type = 'info') => {
-    setModalConfig({ isOpen: true, title, message, type });
-  };
+  const { modalConfig, showAlert, closeModal } = useModal();
 
   const [notaAvaliacao, setNotaAvaliacao] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -56,7 +49,7 @@ export default function MontarTablatura() {
   const [modalAjusteAberto, setModalAjusteAberto] = useState(false);
   const [notasPendentes, setNotasPendentes] = useState([]);
   const [comandosDaGaita, setComandosDaGaita] = useState([]);
-  const [usuario, setUsuario] = useState(null);
+  const { usuario } = useAuthUser();
   const [mapeamentoUsuario, setMapeamentoUsuario] = useState({});
 
   useEffect(() => {
@@ -67,11 +60,6 @@ export default function MontarTablatura() {
       recarregarTraducoes();
     }
   }, [tomGaita]);
-
-  useEffect(() => {
-    const dadosSalvos = localStorage.getItem('usuarioLogado');
-    if (dadosSalvos) setUsuario(JSON.parse(dadosSalvos));
-  }, []);
 
   const [parteEmAjuste, setParteEmAjuste] = useState(null);
   const [offsetEmAjuste, setOffsetEmAjuste] = useState(null);
@@ -599,7 +587,8 @@ export default function MontarTablatura() {
           title={modalConfig.title}
           message={modalConfig.message}
           type={modalConfig.type}
-          onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+          onConfirm={modalConfig.onConfirm}
+          onClose={closeModal}
         />
         <div style={{ ...s.mainCard, maxWidth: '800px', textAlign: 'center' }}>
           <h2 style={{ color: '#007bff', marginBottom: 5 }}>{nome}</h2>
@@ -684,7 +673,8 @@ export default function MontarTablatura() {
         title={modalConfig.title}
         message={modalConfig.message}
         type={modalConfig.type}
-        onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+        onConfirm={modalConfig.onConfirm}
+        onClose={closeModal}
       />
       <div style={s.contentWrapper}>
         {/* COLUNA ESQUERDA */}

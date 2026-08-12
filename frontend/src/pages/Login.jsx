@@ -2,18 +2,10 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import CustomModal from '../components/CustomModal';
 import { registrarUsuario, buscarUsuarioPorCredenciais } from '../services/authService';
+import { useModal } from '../hooks/useModal';
 
 export default function Login() {
-  const [modalConfig, setModalConfig] = useState({
-    isOpen: false,
-    title: '',
-    message: '',
-    type: 'info'
-  });
-
-  const showAlert = (message, title = 'Aviso', type = 'info') => {
-    setModalConfig({ isOpen: true, title, message, type });
-  };
+  const { modalConfig, showAlert, closeModal } = useModal();
 
   const [isRegistering, setIsRegistering] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
@@ -187,7 +179,8 @@ export default function Login() {
               title={modalConfig.title}
               message={modalConfig.message}
               type={modalConfig.type}
-              onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+              onConfirm={modalConfig.onConfirm}
+              onClose={closeModal}
             />
 
             <p
