@@ -27,3 +27,4 @@ dist-ssr
 .env
 __pycache__
 midiarchives/*
+services/__pycache__
