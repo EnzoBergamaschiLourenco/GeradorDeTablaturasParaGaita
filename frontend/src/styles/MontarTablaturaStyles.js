@@ -26,6 +26,17 @@ export const btnPlayAll = { padding: '6px 12px', backgroundColor: 'var(--color-p
 
 export const notasCardInternoContainer = { display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '10px', backgroundColor: 'var(--color-bg-card-tertiary)', borderRadius: '8px', border: 'var(--border-width-base) solid var(--color-border-alt)', marginBottom: '14px' };
 
+/* === Controles de Volume por Parte === */
+export const volumeContainerStyle = { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', width: '100%' };
+export const volumeIconStyle = { fontSize: '15px', width: '18px', textAlign: 'center', flexShrink: 0 };
+export const volumeSliderStyle = { flex: 1, minWidth: 0, cursor: 'pointer' };
+export const volumePercentStyle = { fontSize: '11px', color: 'var(--color-text-slate-2)', fontWeight: 'bold', width: '36px', textAlign: 'right', flexShrink: 0, fontVariantNumeric: 'tabular-nums' };
+
+export const btnSoloStyle = { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', borderRadius: '6px', border: 'var(--border-width-base) solid var(--color-border-soft)', backgroundColor: 'var(--color-bg-card-alt)', color: 'var(--color-text-slate-5)', fontSize: '12px', cursor: 'pointer', flexShrink: 0, transition: 'background-color 0.15s ease, border-color 0.15s ease' };
+export const btnSoloAtivoStyle = { backgroundColor: 'var(--color-warning-strong)', border: 'var(--border-width-base) solid var(--color-warning-strong)', color: 'var(--color-text-slate-7)' };
+
+export const btnResetVolumesStyle = { padding: '4px 10px', fontSize: '11px', fontWeight: 'bold', backgroundColor: 'var(--color-border-alt)', color: 'var(--color-text-muted)', border: 'none', borderRadius: '6px', cursor: 'pointer', transition: 'background-color 0.2s' };
+
 /* === Barra de Progresso Redesenhada === */
 export const barraFundo = { position: 'relative', width: '100%', height: '14px', backgroundColor: 'var(--color-border-alt)', borderRadius: '10px', marginTop: '16px', cursor: 'pointer', boxShadow: 'inset 0 1px 3px var(--shadow-note-default)' };
 export const barraProgresso = { height: '100%', backgroundColor: 'var(--color-primary)', borderRadius: '10px', pointerEvents: 'none' };

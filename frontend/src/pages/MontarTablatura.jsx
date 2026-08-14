@@ -79,8 +79,18 @@ export default function MontarTablatura() {
   const [textoTablatura, setTextoTablatura] = useState('');
 
   const {
-    togglePlayAll, stop, seek, duration, isPlaying, playingId, tempoAtual, progress, alterarVolume, volumes, changeSpeed, playbackSpeed = {}
+    togglePlayAll, stop, seek, duration, isPlaying, playingId, tempoAtual, progress,
+    alterarVolume, volumes, alternarSolo, resetarVolumes, soloParteId, changeSpeed, playbackSpeed = {}
   } = useMidiPlayer();
+
+  const formatarPercentualVolume = (vol) => `${Math.round((vol ?? 1) * 100)}%`;
+  const iconeVolume = (vol) => {
+    const v = vol ?? 1;
+    if (v <= 0) return '🔇';
+    if (v < 0.5) return '🔈';
+    if (v < 1) return '🔉';
+    return '🔊';
+  };
 
   // Pausa o player automaticamente quando entra em carregamento
   useEffect(() => {
@@ -709,6 +719,14 @@ export default function MontarTablatura() {
               <div style={s.containerCardsMidi}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                   <span style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--color-text-slate-1)' }}>Partes Ativas:</span>
+                  <button
+                    type="button"
+                    style={s.btnResetVolumesStyle}
+                    onClick={() => resetarVolumes(partesAdicionadas.map(p => p.id))}
+                    title="Restaura o volume de todas as partes para o máximo"
+                  >
+                    ↺ Resetar Volumes
+                  </button>
                 </div>
 
                 {partesAdicionadas.map(parte => {
@@ -750,21 +768,37 @@ export default function MontarTablatura() {
                             )}
                           </div>
 
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px' }} onClick={e => e.stopPropagation()}>
-                            <span style={{ fontSize: '11px', color: 'var(--color-text-slate-2)', fontWeight: 'bold' }}>Volume</span>
+                          <div style={s.volumeContainerStyle} onClick={e => e.stopPropagation()}>
+                            <span style={s.volumeIconStyle} title="Volume da parte">
+                              {iconeVolume(volumes[parte.id])}
+                            </span>
                             <input
                               type="range"
                               min="0"
                               max="1"
                               step="0.01"
+                              className="volume-slider"
                               value={volumes[parte.id] ?? 1}
-                              disabled={isPlaying}
                               onChange={e => {
                                 const novoVolume = parseFloat(e.target.value);
                                 alterarVolume(parte.id, novoVolume);
                               }}
-                              style={{ width: '100%', cursor: isPlaying ? 'default' : 'pointer' }}
+                              style={{
+                                ...s.volumeSliderStyle,
+                                '--vol-pct': formatarPercentualVolume(volumes[parte.id]),
+                                '--vol-fill-color': soloParteId === parte.id ? 'var(--color-warning-strong)' : 'var(--color-primary)'
+                              }}
+                              aria-label={`Volume da parte ${parte.nome}`}
                             />
+                            <span style={s.volumePercentStyle}>{formatarPercentualVolume(volumes[parte.id])}</span>
+                            <button
+                              type="button"
+                              style={{ ...s.btnSoloStyle, ...(soloParteId === parte.id ? s.btnSoloAtivoStyle : {}) }}
+                              onClick={() => alternarSolo(parte.id, partesAdicionadas.map(p => p.id))}
+                              title={soloParteId === parte.id ? 'Desativar solo (restaurar volumes)' : 'Ouvir somente esta parte (solo)'}
+                            >
+                              🎧
+                            </button>
                           </div>
                         </div>
                       </div>

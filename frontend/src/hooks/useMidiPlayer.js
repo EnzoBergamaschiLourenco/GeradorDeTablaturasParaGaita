@@ -25,7 +25,9 @@ export function useMidiPlayer() {
   const currentPartesIdsRef = useRef([]);
   const currentMidiPathRef = useRef('');
   const sequenceRef = useRef(null);
-  const debounceTimerRef = useRef(null);
+  const partesNotasRef = useRef({});
+  const soloParteIdRef = useRef(null);
+  const volumesAntesSoloRef = useRef(null);
   const baseTempoRef = useRef(120);
   const animationFrameRef = useRef(null);
   const playbackClockStartRef = useRef(0);
@@ -41,11 +43,16 @@ export function useMidiPlayer() {
   const [duration, setDuration] = useState(0);
   const [tempoAtual, setTempoAtual] = useState(0);
   const [volumes, setVolumesState] = useState({});
+  const [soloParteId, setSoloParteId] = useState(null);
 
   const extractInstrumentNumber = (id) => {
     const numStr = String(id).replace(/\D/g, '');
     return numStr ? parseInt(numStr, 10) : 0;
   };
+
+  // Curva perceptual (quadrática) para o volume, igual à usada originalmente.
+  const calcularVelocidadeComVolume = (baseVelocity, volume) =>
+    Math.min(127, Math.max(0, Math.floor(baseVelocity * volume * volume)));
 
   const getAudioContext = () => {
     if (!audioCtxRef.current) {
@@ -92,10 +99,13 @@ export function useMidiPlayer() {
       const instrumentNum = extractInstrumentNumber(parteId);
 
       seq.notes.forEach(note => {
+        const baseVelocity = Math.min(127, Math.max(0, Math.floor(note.velocity)));
         combinedNotes.push({
           ...note,
           instrument: instrumentNum,
-          velocity: Math.min(127, Math.max(0, Math.floor(note.velocity * volumeMultiplier * volumeMultiplier))),
+          parteId,
+          baseVelocity,
+          velocity: calcularVelocidadeComVolume(baseVelocity, volumeMultiplier),
         });
       });
       if (seq.totalTime > maxTime) maxTime = seq.totalTime;
@@ -125,6 +135,14 @@ export function useMidiPlayer() {
     });
 
     combinedSequence = sanitizeSequence(combinedSequence);
+
+    const notasPorParte = {};
+    combinedSequence.notes.forEach(nota => {
+      if (!notasPorParte[nota.parteId]) notasPorParte[nota.parteId] = [];
+      notasPorParte[nota.parteId].push(nota);
+    });
+    partesNotasRef.current = notasPorParte;
+
     totalDurationRef.current = combinedSequence.totalTime;
     currentPartesIdsRef.current = partesIds;
     currentMidiPathRef.current = midiPath;
@@ -218,10 +236,6 @@ export function useMidiPlayer() {
     setProgress(0);
     setTempoAtual(0);
     pausedTimeRef.current = 0;
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = null;
-    }
   };
 
   const pauseAll = () => {
@@ -363,23 +377,64 @@ export function useMidiPlayer() {
     setProgress((targetTime / (totalDurationRef.current || 1)) * 100);
   };
 
-  const applyVolumeChangeWithReload = async () => {
-    if (currentPartesIdsRef.current.length === 0 || !currentMidiPathRef.current) return;
-    const wasPlaying = isPlayingRef.current;
-    const currentTime = wasPlaying ? tempoAtual : pausedTimeRef.current;
-    await recreatePlayerAtTime(currentTime, wasPlaying);
+  // Aplica o volume imediatamente: atualiza o estado/refs e, se a sequência já
+  // estiver carregada, ajusta a velocidade das notas dessa parte "ao vivo" (o
+  // Tone.Part lê o valor de `velocity` no momento em que cada nota dispara, então
+  // isso funciona tanto tocando quanto pausado, sem recriar o player).
+  const aplicarVolumeInterno = (parteId, vol) => {
+    const normalized = Math.min(1, Math.max(0, vol));
+    currentVolumesRef.current[parteId] = normalized;
+    setVolumesState(prev => (prev[parteId] === normalized ? prev : { ...prev, [parteId]: normalized }));
+
+    const notas = partesNotasRef.current[parteId];
+    if (notas) {
+      notas.forEach(nota => {
+        nota.velocity = calcularVelocidadeComVolume(nota.baseVelocity, normalized);
+      });
+    }
   };
 
   const setVolume = (parteId, vol) => {
-    const normalized = Math.min(1, Math.max(0, vol));
-    setVolumesState(prev => ({ ...prev, [parteId]: normalized }));
-    currentVolumesRef.current[parteId] = normalized;
+    // Ajustar manualmente uma parte encerra o modo solo (o pressuposto de
+    // "só uma parte com som" deixa de valer assim que o usuário mexe no fader).
+    if (soloParteIdRef.current !== null) {
+      soloParteIdRef.current = null;
+      volumesAntesSoloRef.current = null;
+      setSoloParteId(null);
+    }
+    aplicarVolumeInterno(parteId, vol);
+  };
 
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    debounceTimerRef.current = setTimeout(() => {
-      debounceTimerRef.current = null;
-      applyVolumeChangeWithReload();
-    }, 500);
+  const alternarSolo = (parteId, todosParteIds) => {
+    if (soloParteIdRef.current === parteId) {
+      // Já está em solo nesta parte: desfaz e restaura os volumes anteriores.
+      const snapshot = volumesAntesSoloRef.current || {};
+      todosParteIds.forEach(id => aplicarVolumeInterno(id, snapshot[id] ?? 1));
+      volumesAntesSoloRef.current = null;
+      soloParteIdRef.current = null;
+      setSoloParteId(null);
+      return;
+    }
+
+    if (soloParteIdRef.current === null) {
+      const snapshot = {};
+      todosParteIds.forEach(id => { snapshot[id] = currentVolumesRef.current[id] ?? 1; });
+      volumesAntesSoloRef.current = snapshot;
+    }
+
+    todosParteIds.forEach(id => {
+      const volumeAlvo = id === parteId ? (volumesAntesSoloRef.current[id] ?? 1) : 0;
+      aplicarVolumeInterno(id, volumeAlvo);
+    });
+    soloParteIdRef.current = parteId;
+    setSoloParteId(parteId);
+  };
+
+  const resetarVolumes = (todosParteIds) => {
+    soloParteIdRef.current = null;
+    volumesAntesSoloRef.current = null;
+    setSoloParteId(null);
+    todosParteIds.forEach(id => aplicarVolumeInterno(id, 1));
   };
 
   const changeSpeed = (newSpeed) => {
@@ -445,6 +500,9 @@ export function useMidiPlayer() {
     seek,
     setVolumes: setVolume,
     alterarVolume: setVolume,
+    alternarSolo,
+    resetarVolumes,
+    soloParteId,
     progress,
     duration,
     isPlaying,

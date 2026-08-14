@@ -354,3 +354,52 @@
   --shadow-note-playing-medium: rgba(255, 224, 102, 0.5);
   --shadow-note-playing-soft: rgba(255, 224, 102, 0.4);
 }
+
+/* ==========================================================================
+   Slider de volume por parte (MontarTablatura)
+   ==========================================================================
+   O preenchimento (azul até o valor atual, resto na cor do trilho) só é
+   possível via pseudo-elementos nativos do <input type="range">, que não são
+   alcançáveis por inline style — por isso essa é a única regra de CSS "de
+   verdade" do projeto. A porcentagem e a cor de preenchimento são passadas
+   pelo componente via custom properties (--vol-pct e --vol-fill-color) no
+   style inline do input; a cor muda para destacar a parte em modo solo.
+   ========================================================================== */
+.volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: transparent;
+  outline: none;
+}
+.volume-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--vol-fill-color, var(--color-primary)) var(--vol-pct, 100%), var(--color-border-alt) var(--vol-pct, 100%));
+}
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--vol-fill-color, var(--color-primary));
+  border: 2px solid var(--color-bg-card);
+  box-shadow: 0 1px 3px var(--shadow-note-default);
+  cursor: pointer;
+}
+.volume-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--vol-fill-color, var(--color-primary)) var(--vol-pct, 100%), var(--color-border-alt) var(--vol-pct, 100%));
+}
+.volume-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--vol-fill-color, var(--color-primary));
+  border: 2px solid var(--color-bg-card);
+  box-shadow: 0 1px 3px var(--shadow-note-default);
+  cursor: pointer;
+}
