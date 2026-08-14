@@ -10,6 +10,7 @@ import {
 } from '../services/authService';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
+import ThemeControls from '../components/ThemeControls';
 
 export default function Perfil() {
   const { modalConfig, showAlert, closeModal } = useModal();
@@ -157,9 +158,9 @@ export default function Perfil() {
         onClose={closeModal}
       />
       <div style={cardStyle}>
-        <h1 style={{ color: '#007bff' }}>Meu Perfil</h1>
+        <h1 style={{ color: 'var(--color-primary)' }}>Meu Perfil</h1>
 
-        <p style={{ color: '#666' }}>
+        <p style={{ color: 'var(--color-text-muted)' }}>
           Gerencie sua conta
         </p>
 
@@ -168,8 +169,8 @@ export default function Perfil() {
           {urlFoto ? (
             <img src={urlFoto} style={avatarStyle} alt="Perfil" />
           ) : (
-            <div style={{ ...avatarStyle, display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: '#e2e8f0' }}>
-              <svg viewBox="0 0 24 24" width="60" height="60" fill="#64748b">
+            <div style={{ ...avatarStyle, display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: 'var(--color-border-alt)' }}>
+              <svg viewBox="0 0 24 24" width="60" height="60" fill="var(--color-text-slate-2)">
                 <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
               </svg>
             </div>
@@ -183,6 +184,8 @@ export default function Perfil() {
               <p><b>Nome:</b> {usuario.nome}</p>
               <p><b>Email:</b> {usuario.email}</p>
             </div>
+
+            <ThemeControls />
 
             <button style={buttonStyle} onClick={() => setIsEditing(true)}>
               Editar Perfil
@@ -220,7 +223,7 @@ export default function Perfil() {
             />
 
             <input
-              style={{ ...inputStyle, border: '1px solid red' }}
+              style={{ ...inputStyle, border: 'var(--border-width-base) solid var(--color-danger-pure)' }}
               type="password"
               placeholder="Senha atual"
               value={senhaAtual}
@@ -228,7 +231,7 @@ export default function Perfil() {
             />
 
             <button
-              style={{ ...buttonStyle, backgroundColor: '#28a745' }}
+              style={{ ...buttonStyle, backgroundColor: 'var(--color-success)' }}
               onClick={handleUpdate}
               disabled={loading}
             >
@@ -245,7 +248,7 @@ export default function Perfil() {
         {isDeletingAccount && (
           <>
             <input
-              style={{ ...inputStyle, border: '1px solid red' }}
+              style={{ ...inputStyle, border: 'var(--border-width-base) solid var(--color-danger-pure)' }}
               type="password"
               placeholder="Senha"
               value={senhaConfirmacaoDelete}
@@ -253,7 +256,7 @@ export default function Perfil() {
             />
 
             <button
-              style={{ ...buttonStyle, backgroundColor: 'red' }}
+              style={{ ...buttonStyle, backgroundColor: 'var(--color-danger-pure)' }}
               onClick={handleDeleteAccount}
               disabled={loading}
             >
@@ -278,7 +281,7 @@ export default function Perfil() {
 const pageStyle = {
   position: 'fixed',
   inset: 0,
-  background: '#f4f7fb',
+  background: 'var(--color-bg-page)',
   display: 'flex',
   justifyContent: 'center',
   alignItems: 'center',
@@ -286,12 +289,12 @@ const pageStyle = {
 };
 
 const cardStyle = {
-  background: '#fff',
+  background: 'var(--color-bg-card)',
   padding: 40,
   borderRadius: 24,
   width: 420,
   textAlign: 'center',
-  boxShadow: '0 15px 40px rgba(0,0,0,0.08)'
+  boxShadow: '0 15px 40px var(--shadow-card)'
 };
 
 const avatarStyle = {
@@ -299,7 +302,7 @@ const avatarStyle = {
   height: 120,
   borderRadius: '50%',
   objectFit: 'cover',
-  border: '3px solid #007bff',
+  border: '3px solid var(--color-primary)',
   boxSizing: 'border-box'
 };
 
@@ -308,15 +311,17 @@ const inputStyle = {
   padding: 12,
   marginBottom: 10,
   borderRadius: 10,
-  border: '1px solid #d8e3f0',
-  boxSizing: 'border-box'
+  border: 'var(--border-width-base) solid var(--color-border)',
+  boxSizing: 'border-box',
+  backgroundColor: 'var(--color-bg-card)',
+  color: 'var(--color-text-main)'
 };
 
 const buttonStyle = {
   width: '100%',
   padding: 14,
-  background: '#007bff',
-  color: '#fff',
+  background: 'var(--color-primary)',
+  color: 'var(--color-text-on-primary)',
   border: 'none',
   borderRadius: 12,
   cursor: 'pointer',
@@ -324,7 +329,7 @@ const buttonStyle = {
 };
 
 const link = {
-  color: '#007bff',
+  color: 'var(--color-primary)',
   cursor: 'pointer',
   textDecoration: 'underline',
   fontSize: 13,
@@ -332,7 +337,7 @@ const link = {
 };
 
 const danger = {
-  color: 'red',
+  color: 'var(--color-danger-pure)',
   cursor: 'pointer',
   textDecoration: 'underline',
   fontSize: 13,
@@ -341,7 +346,7 @@ const danger = {
 
 const infoBox = {
   textAlign: 'left',
-  background: '#f8fafc',
+  background: 'var(--color-bg-card-alt)',
   padding: 12,
   borderRadius: 12,
   marginBottom: 15

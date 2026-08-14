@@ -1,0 +1,356 @@
+/* ==========================================================================
+   Sistema de tema: claro/escuro + alto contraste
+   ==========================================================================
+   Cada variável abaixo tem, no :root (tema claro padrão), o MESMO valor que
+   já era usado como hex/rgba literal nas páginas antes desta mudança — ou
+   seja, o app no tema claro sem alto contraste continua com a aparência
+   exata de antes. Os overrides em [data-theme='dark'] e [data-contrast='alto']
+   (aplicados em <html> pelo hook useTheme) que efetivamente mudam a cor.
+
+   Independente de index.css (que tem seu próprio --text/--bg/--accent,
+   boilerplate do template e não usado pelas páginas reais) — de propósito,
+   para não colidir nomes nem reabrir o problema de vazamento de estilo já
+   corrigido em App.css.
+   ========================================================================== */
+
+:root {
+  /* ---------- Fundos ---------- */
+  --color-bg-page: #f4f7fb;
+  --color-bg-card: #ffffff;
+  --color-bg-card-alt: #f8fafc;       /* cards aninhados: midi cards, infoBox, notas pendentes */
+  --color-bg-card-tertiary: #edf2f7;  /* notasCardInternoContainer */
+  --color-bg-input-locked: #f1f5f9;   /* input/textarea travado (CriarTabs) */
+  --color-bg-highlight: #eff6ff;      /* card de MIDI selecionado */
+  --color-bg-icon-primary: #e6f4ea;   /* icon box verde (CriarTabs) */
+  --color-bg-icon-secondary: #e8f0fe; /* icon box azul (CriarTabs / MontarTablatura) */
+  --color-bg-paper: #fffbe6;          /* "papel" da tablatura (VisualizarTabs) */
+  --color-bg-liked: #e8f5e9;
+  --color-bg-not-liked: #f0f4f8;
+  --color-bg-liked-badge: #c8e6c9;
+  --color-bg-danger-soft: #fee2e2;
+
+  --color-overlay-modal: rgba(0, 0, 0, 0.5);
+  --color-overlay-modal-strong: rgba(0, 0, 0, 0.6);
+  --color-overlay-loading: rgba(128, 128, 128, 0.5);
+
+  /* ---------- Texto ---------- */
+  --color-text-main: #333333;
+  --color-text-muted: #666666;
+  --color-text-light: #888888;
+  --color-text-faint: #444444;
+  --color-text-secondary: #555555;
+  --color-text-on-primary: #ffffff;   /* texto sobre botão/fundo azul */
+  --color-text-on-warning: #000000;   /* texto sobre fundo amarelo (botão editar) */
+  --color-text-on-note-playing: #422006;
+
+  /* Cinzas finos usados no editor de tablatura (MontarTablatura) */
+  --color-text-slate-1: #4a5568;
+  --color-text-slate-2: #64748b;      /* também usado no fill do ícone SVG padrão (Menu) */
+  --color-text-slate-3: #a0aec0;
+  --color-text-slate-4: #1e293b;
+  --color-text-slate-5: #475569;
+  --color-text-slate-6: #0f172a;
+  --color-text-slate-7: #334155;
+  --color-text-danger-strong: #b91c1c;
+  --color-text-success: #2e7d32;
+  --color-text-icon-success: #137333;
+
+  /* ---------- Bordas ---------- */
+  --color-border: #d8e3f0;            /* inputs */
+  --color-border-alt: #e2e8f0;        /* cards, divisores, botões secundários */
+  --color-border-neutral: #cccccc;
+  --color-border-divider: #eeeeee;
+  --color-border-divider-alt: #f0f0f0;
+  --color-border-soft: #cbd5e1;
+  --color-border-paper: #e6db55;
+  --color-border-liked: #4caf50;
+  --border-width-base: 1px;
+
+  /* ---------- Marca / acentos ---------- */
+  --color-primary: #007bff;
+  --color-primary-hover: #0056b3;
+  --color-secondary-blue: #1a73e8;
+  --color-sky-highlight: #38bdf8;
+
+  /* ---------- Estados semânticos ---------- */
+  --color-danger: #ff4d4d;
+  --color-danger-strong: #dc3545;
+  --color-danger-pure: red;
+  --color-success: #28a745;
+  --color-success-alt: #238636;
+  --color-warning: #ffc107;
+  --color-warning-strong: #facc15;
+
+  /* ---------- Sombras ---------- */
+  --shadow-card: rgba(0, 0, 0, 0.08);
+  --shadow-card-soft: rgba(0, 0, 0, 0.05);
+  --shadow-card-softer: rgba(0, 0, 0, 0.04);
+  --shadow-note-default: rgba(0, 0, 0, 0.1);
+  --shadow-note-selected: rgba(0, 0, 0, 0.2);
+  --shadow-button-primary: rgba(0, 123, 255, 0.25);
+  --shadow-button-primary-alt: rgba(0, 123, 255, 0.3);
+  --shadow-button-primary-soft: rgba(0, 123, 255, 0.2);
+  --shadow-button-primary-faint: rgba(0, 123, 255, 0.15);
+  --shadow-button-success: rgba(40, 167, 69, 0.3);
+  --shadow-button-success-alt: rgba(35, 134, 54, 0.15);
+  --shadow-button-warning: rgba(255, 193, 7, 0.3);
+  --shadow-playing-glow-strong: rgba(14, 165, 233, 0.8);
+  --shadow-playing-glow-soft: rgba(14, 165, 233, 0.4);
+  --shadow-note-playing-strong: rgba(250, 204, 21, 0.9);
+  --shadow-note-playing-medium: rgba(250, 204, 21, 0.5);
+  --shadow-note-playing-soft: rgba(250, 204, 21, 0.4);
+}
+
+/* ==========================================================================
+   Tema escuro — mesma identidade visual (azul #007bff como base), ajustada
+   para permanecer legível em fundo escuro.
+   ========================================================================== */
+[data-theme='dark'] {
+  --color-bg-page: #14161c;
+  --color-bg-card: #1c1f27;
+  --color-bg-card-alt: #232733;
+  --color-bg-card-tertiary: #262b38;
+  --color-bg-input-locked: #20242e;
+  --color-bg-highlight: #1c2a3f;
+  --color-bg-icon-primary: #16321f;
+  --color-bg-icon-secondary: #17243a;
+  --color-bg-paper: #2a2712;
+  --color-bg-liked: #17301c;
+  --color-bg-not-liked: #1d2430;
+  --color-bg-liked-badge: #234a29;
+  --color-bg-danger-soft: #3a1f22;
+
+  --color-overlay-modal: rgba(0, 0, 0, 0.7);
+  --color-overlay-modal-strong: rgba(0, 0, 0, 0.75);
+  --color-overlay-loading: rgba(0, 0, 0, 0.6);
+
+  --color-text-main: #e5e7eb;
+  --color-text-muted: #a1a8b4;
+  --color-text-light: #7d8590;
+  --color-text-faint: #c3c9d1;
+  --color-text-secondary: #b3bac4;
+  --color-text-on-primary: #ffffff;
+  --color-text-on-warning: #1a1200;
+  --color-text-on-note-playing: #1a1200;
+
+  --color-text-slate-1: #9aa4b2;
+  --color-text-slate-2: #97a3b3;
+  --color-text-slate-3: #7d8899;
+  --color-text-slate-4: #dbe2ea;
+  --color-text-slate-5: #b7c0cc;
+  --color-text-slate-6: #e8ecf1;
+  --color-text-slate-7: #c1c9d4;
+  --color-text-danger-strong: #f28b8b;
+  --color-text-success: #6fcf7a;
+  --color-text-icon-success: #4fd07a;
+
+  --color-border: #333947;
+  --color-border-alt: #3a4150;
+  --color-border-neutral: #4b5563;
+  --color-border-divider: #333947;
+  --color-border-divider-alt: #333947;
+  --color-border-soft: #4b5563;
+  --color-border-paper: #6b6420;
+  --color-border-liked: #3f8c4a;
+
+  --color-primary: #4da3ff;
+  --color-primary-hover: #7cbcff;
+  --color-secondary-blue: #6ba8f0;
+  --color-sky-highlight: #63c8fb;
+
+  --color-danger: #ff7a7a;
+  --color-danger-strong: #f0616f;
+  --color-danger-pure: #ff5c5c;
+  --color-success: #4ade80;
+  --color-success-alt: #4ade80;
+  --color-warning: #ffd43b;
+  --color-warning-strong: #ffe066;
+
+  --shadow-card: rgba(0, 0, 0, 0.4);
+  --shadow-card-soft: rgba(0, 0, 0, 0.3);
+  --shadow-card-softer: rgba(0, 0, 0, 0.25);
+  --shadow-note-default: rgba(0, 0, 0, 0.35);
+  --shadow-note-selected: rgba(0, 0, 0, 0.45);
+  --shadow-button-primary: rgba(77, 163, 255, 0.3);
+  --shadow-button-primary-alt: rgba(77, 163, 255, 0.35);
+  --shadow-button-primary-soft: rgba(77, 163, 255, 0.25);
+  --shadow-button-primary-faint: rgba(77, 163, 255, 0.2);
+  --shadow-button-success: rgba(74, 222, 128, 0.3);
+  --shadow-button-success-alt: rgba(74, 222, 128, 0.2);
+  --shadow-button-warning: rgba(255, 212, 59, 0.3);
+  --shadow-playing-glow-strong: rgba(99, 200, 251, 0.8);
+  --shadow-playing-glow-soft: rgba(99, 200, 251, 0.4);
+  --shadow-note-playing-strong: rgba(255, 224, 102, 0.9);
+  --shadow-note-playing-medium: rgba(255, 224, 102, 0.5);
+  --shadow-note-playing-soft: rgba(255, 224, 102, 0.4);
+}
+
+/* ==========================================================================
+   Alto contraste — sobre o tema claro. Fundo/branco puro, texto preto puro,
+   acentos mais saturados/escuros para contraste AAA, bordas mais grossas.
+   ========================================================================== */
+[data-contrast='alto'] {
+  --color-bg-page: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-bg-card-alt: #ffffff;
+  --color-bg-card-tertiary: #ffffff;
+  --color-bg-input-locked: #f0f0f0;
+  --color-bg-highlight: #ffffff;
+  --color-bg-icon-primary: #ffffff;
+  --color-bg-icon-secondary: #ffffff;
+  --color-bg-paper: #ffffff;
+  --color-bg-liked: #ffffff;
+  --color-bg-not-liked: #ffffff;
+  --color-bg-liked-badge: #ffffff;
+  --color-bg-danger-soft: #ffffff;
+
+  --color-overlay-modal: rgba(0, 0, 0, 0.8);
+  --color-overlay-modal-strong: rgba(0, 0, 0, 0.85);
+  --color-overlay-loading: rgba(0, 0, 0, 0.6);
+
+  --color-text-main: #000000;
+  --color-text-muted: #000000;
+  --color-text-light: #1a1a1a;
+  --color-text-faint: #000000;
+  --color-text-secondary: #000000;
+  --color-text-on-primary: #ffffff;
+  --color-text-on-warning: #000000;
+  --color-text-on-note-playing: #000000;
+
+  --color-text-slate-1: #000000;
+  --color-text-slate-2: #000000;
+  --color-text-slate-3: #000000;
+  --color-text-slate-4: #000000;
+  --color-text-slate-5: #000000;
+  --color-text-slate-6: #000000;
+  --color-text-slate-7: #000000;
+  --color-text-danger-strong: #7a0000;
+  --color-text-success: #003d00;
+  --color-text-icon-success: #003d00;
+
+  --color-border: #000000;
+  --color-border-alt: #000000;
+  --color-border-neutral: #000000;
+  --color-border-divider: #000000;
+  --color-border-divider-alt: #000000;
+  --color-border-soft: #000000;
+  --color-border-paper: #000000;
+  --color-border-liked: #003d00;
+  --border-width-base: 2px;
+
+  --color-primary: #0044aa;
+  --color-primary-hover: #002d73;
+  --color-secondary-blue: #0044aa;
+  --color-sky-highlight: #0044aa;
+
+  --color-danger: #b30000;
+  --color-danger-strong: #b30000;
+  --color-danger-pure: #b30000;
+  --color-success: #006622;
+  --color-success-alt: #006622;
+  --color-warning: #7a5900;
+  --color-warning-strong: #7a5900;
+
+  --shadow-card: rgba(0, 0, 0, 0.5);
+  --shadow-card-soft: rgba(0, 0, 0, 0.5);
+  --shadow-card-softer: rgba(0, 0, 0, 0.5);
+  --shadow-note-default: rgba(0, 0, 0, 0.5);
+  --shadow-note-selected: rgba(0, 0, 0, 0.5);
+  --shadow-button-primary: rgba(0, 68, 170, 0.4);
+  --shadow-button-primary-alt: rgba(0, 68, 170, 0.4);
+  --shadow-button-primary-soft: rgba(0, 68, 170, 0.4);
+  --shadow-button-primary-faint: rgba(0, 68, 170, 0.4);
+  --shadow-button-success: rgba(0, 102, 34, 0.4);
+  --shadow-button-success-alt: rgba(0, 102, 34, 0.4);
+  --shadow-button-warning: rgba(122, 89, 0, 0.4);
+  --shadow-playing-glow-strong: rgba(0, 68, 170, 0.8);
+  --shadow-playing-glow-soft: rgba(0, 68, 170, 0.4);
+  --shadow-note-playing-strong: rgba(122, 89, 0, 0.9);
+  --shadow-note-playing-medium: rgba(122, 89, 0, 0.5);
+  --shadow-note-playing-soft: rgba(122, 89, 0, 0.4);
+}
+
+/* ==========================================================================
+   Alto contraste + tema escuro — preto puro, texto branco puro, acentos
+   bem saturados para contraste AAA sobre preto.
+   ========================================================================== */
+[data-theme='dark'][data-contrast='alto'] {
+  --color-bg-page: #000000;
+  --color-bg-card: #000000;
+  --color-bg-card-alt: #000000;
+  --color-bg-card-tertiary: #000000;
+  --color-bg-input-locked: #0d0d0d;
+  --color-bg-highlight: #000000;
+  --color-bg-icon-primary: #000000;
+  --color-bg-icon-secondary: #000000;
+  --color-bg-paper: #000000;
+  --color-bg-liked: #000000;
+  --color-bg-not-liked: #000000;
+  --color-bg-liked-badge: #000000;
+  --color-bg-danger-soft: #000000;
+
+  --color-overlay-modal: rgba(0, 0, 0, 0.9);
+  --color-overlay-modal-strong: rgba(0, 0, 0, 0.92);
+  --color-overlay-loading: rgba(0, 0, 0, 0.75);
+
+  --color-text-main: #ffffff;
+  --color-text-muted: #ffffff;
+  --color-text-light: #f2f2f2;
+  --color-text-faint: #ffffff;
+  --color-text-secondary: #ffffff;
+  --color-text-on-primary: #000000;
+  --color-text-on-warning: #000000;
+  --color-text-on-note-playing: #000000;
+
+  --color-text-slate-1: #ffffff;
+  --color-text-slate-2: #ffffff;
+  --color-text-slate-3: #ffffff;
+  --color-text-slate-4: #ffffff;
+  --color-text-slate-5: #ffffff;
+  --color-text-slate-6: #ffffff;
+  --color-text-slate-7: #ffffff;
+  --color-text-danger-strong: #ff8080;
+  --color-text-success: #58e06f;
+  --color-text-icon-success: #58e06f;
+
+  --color-border: #ffffff;
+  --color-border-alt: #ffffff;
+  --color-border-neutral: #ffffff;
+  --color-border-divider: #ffffff;
+  --color-border-divider-alt: #ffffff;
+  --color-border-soft: #ffffff;
+  --color-border-paper: #ffffff;
+  --color-border-liked: #58e06f;
+  --border-width-base: 2px;
+
+  --color-primary: #66b3ff;
+  --color-primary-hover: #99ccff;
+  --color-secondary-blue: #66b3ff;
+  --color-sky-highlight: #66b3ff;
+
+  --color-danger: #ff8080;
+  --color-danger-strong: #ff8080;
+  --color-danger-pure: #ff8080;
+  --color-success: #58e06f;
+  --color-success-alt: #58e06f;
+  --color-warning: #ffe066;
+  --color-warning-strong: #ffe066;
+
+  --shadow-card: rgba(255, 255, 255, 0.2);
+  --shadow-card-soft: rgba(255, 255, 255, 0.15);
+  --shadow-card-softer: rgba(255, 255, 255, 0.1);
+  --shadow-note-default: rgba(255, 255, 255, 0.2);
+  --shadow-note-selected: rgba(255, 255, 255, 0.3);
+  --shadow-button-primary: rgba(102, 179, 255, 0.4);
+  --shadow-button-primary-alt: rgba(102, 179, 255, 0.4);
+  --shadow-button-primary-soft: rgba(102, 179, 255, 0.4);
+  --shadow-button-primary-faint: rgba(102, 179, 255, 0.4);
+  --shadow-button-success: rgba(88, 224, 111, 0.4);
+  --shadow-button-success-alt: rgba(88, 224, 111, 0.4);
+  --shadow-button-warning: rgba(255, 224, 102, 0.4);
+  --shadow-playing-glow-strong: rgba(102, 179, 255, 0.8);
+  --shadow-playing-glow-soft: rgba(102, 179, 255, 0.4);
+  --shadow-note-playing-strong: rgba(255, 224, 102, 0.9);
+  --shadow-note-playing-medium: rgba(255, 224, 102, 0.5);
+  --shadow-note-playing-soft: rgba(255, 224, 102, 0.4);
+}

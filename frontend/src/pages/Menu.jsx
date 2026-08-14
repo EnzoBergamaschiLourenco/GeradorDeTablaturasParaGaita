@@ -194,7 +194,7 @@ export default function Menu() {
         inset: 0,
         width: '100vw',
         height: '100vh',
-        backgroundColor: '#f4f7fb',
+        backgroundColor: 'var(--color-bg-page)',
         fontFamily: 'Arial, sans-serif',
         overflowY: 'auto',
         boxSizing: 'border-box',
@@ -217,10 +217,10 @@ export default function Menu() {
               display: 'flex',
               alignItems: 'center',
               gap: '12px',
-              backgroundColor: 'white',
+              backgroundColor: 'var(--color-bg-card)',
               padding: '10px 14px',
               borderRadius: '12px',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+              boxShadow: '0 4px 12px var(--shadow-card)',
               overflow: 'hidden',
               cursor: 'pointer'
             }}
@@ -234,7 +234,7 @@ export default function Menu() {
                   height: '50px',
                   borderRadius: '50%',
                   objectFit: 'cover',
-                  border: '2px solid #007bff',
+                  border: '2px solid var(--color-primary)',
                   boxSizing: 'border-box'
                 }}
                 onError={(e) => {
@@ -242,7 +242,7 @@ export default function Menu() {
                 }}
               />
             ) : (
-              <svg viewBox="0 0 24 24" width="30" height="30" fill="#64748b">
+              <svg viewBox="0 0 24 24" width="30" height="30" fill="var(--color-text-slate-2)">
                 <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
               </svg>
             )}
@@ -253,7 +253,7 @@ export default function Menu() {
                   display: 'block',
                   fontWeight: 'bold',
                   fontSize: '14px',
-                  color: '#333'
+                  color: 'var(--color-text-main)'
                 }}
               >
                 {usuario.nome}
@@ -265,7 +265,7 @@ export default function Menu() {
                 }}
                 style={{
                   fontSize: '12px',
-                  color: '#ff4d4d',
+                  color: 'var(--color-danger)',
                   cursor: 'pointer',
                   textDecoration: 'underline'
                 }}
@@ -279,13 +279,13 @@ export default function Menu() {
             onClick={() => navigate('/login')}
             style={{
               padding: '12px 24px',
-              backgroundColor: '#007bff',
-              color: 'white',
+              backgroundColor: 'var(--color-primary)',
+              color: 'var(--color-text-on-primary)',
               border: 'none',
               borderRadius: '10px',
               cursor: 'pointer',
               fontWeight: 'bold',
-              boxShadow: '0 4px 12px rgba(0,123,255,0.3)'
+              boxShadow: '0 4px 12px var(--shadow-button-primary-alt)'
             }}
           >
             Login / Sign-In
@@ -315,10 +315,10 @@ export default function Menu() {
           <div
             style={{
               width: '100%',
-              backgroundColor: 'white',
+              backgroundColor: 'var(--color-bg-card)',
               padding: '45px',
               borderRadius: '24px',
-              boxShadow: '0 15px 40px rgba(0,0,0,0.08)',
+              boxShadow: '0 15px 40px var(--shadow-card)',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
@@ -328,7 +328,7 @@ export default function Menu() {
             <h1
               style={{
                 margin: 0,
-                color: '#007bff',
+                color: 'var(--color-primary)',
                 fontSize: '42px',
                 fontWeight: 'bold'
               }}
@@ -340,7 +340,7 @@ export default function Menu() {
               style={{
                 marginTop: '12px',
                 marginBottom: '35px',
-                color: '#666',
+                color: 'var(--color-text-muted)',
                 textAlign: 'center',
                 lineHeight: '1.5'
               }}
@@ -368,7 +368,7 @@ export default function Menu() {
                     flex: 1,
                     padding: '15px 18px',
                     borderRadius: '14px',
-                    border: '1px solid #d8e3f0',
+                    border: 'var(--border-width-base) solid var(--color-border)',
                     fontSize: '15px',
                     boxSizing: 'border-box',
                     outline: 'none',
@@ -380,8 +380,8 @@ export default function Menu() {
                   onClick={handlePesquisaPrincipal}
                   style={{
                     padding: '0 20px',
-                    backgroundColor: '#007bff',
-                    color: 'white',
+                    backgroundColor: 'var(--color-primary)',
+                    color: 'var(--color-text-on-primary)',
                     border: 'none',
                     borderRadius: '14px',
                     cursor: 'pointer',
@@ -403,12 +403,12 @@ export default function Menu() {
                     top: '100%',
                     left: 0,
                     right: 0,
-                    backgroundColor: 'white',
-                    border: '1px solid #d8e3f0',
+                    backgroundColor: 'var(--color-bg-card)',
+                    border: 'var(--border-width-base) solid var(--color-border)',
                     borderTop: 'none',
                     borderRadius: '0 0 14px 14px',
                     overflow: 'hidden',
-                    boxShadow: '0 8px 20px rgba(0,0,0,0.08)',
+                    boxShadow: '0 8px 20px var(--shadow-card)',
                     zIndex: 5
                   }}
                 >
@@ -418,7 +418,7 @@ export default function Menu() {
                       padding: '14px',
                       cursor: 'pointer',
                       fontSize: '14px',
-                      color: '#333',
+                      color: 'var(--color-text-main)',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '10px'
@@ -436,14 +436,14 @@ export default function Menu() {
               style={{
                 width: '100%',
                 padding: '16px',
-                backgroundColor: '#007bff',
-                color: 'white',
+                backgroundColor: 'var(--color-primary)',
+                color: 'var(--color-text-on-primary)',
                 border: 'none',
                 cursor: 'pointer',
                 fontSize: '16px',
                 fontWeight: 'bold',
                 borderRadius: '14px',
-                boxShadow: '0 6px 18px rgba(0,123,255,0.25)',
+                boxShadow: '0 6px 18px var(--shadow-button-primary)',
                 transition: '0.2s'
               }}
               onMouseEnter={(e) => {
@@ -461,10 +461,10 @@ export default function Menu() {
           <div
             style={{
               width: '100%',
-              backgroundColor: 'white',
+              backgroundColor: 'var(--color-bg-card)',
               padding: '35px',
               borderRadius: '24px',
-              boxShadow: '0 15px 40px rgba(0,0,0,0.08)',
+              boxShadow: '0 15px 40px var(--shadow-card)',
               boxSizing: 'border-box'
             }}
           >
@@ -481,7 +481,7 @@ export default function Menu() {
                 <h1
                   style={{
                     margin: 0,
-                    color: '#007bff',
+                    color: 'var(--color-primary)',
                     fontSize: '30px'
                   }}
                 >
@@ -491,7 +491,7 @@ export default function Menu() {
                 <p
                   style={{
                     margin: '7px 0 0',
-                    color: '#666',
+                    color: 'var(--color-text-muted)',
                     fontSize: '14px'
                   }}
                 >
@@ -505,8 +505,8 @@ export default function Menu() {
                 onClick={voltarParaInicio}
                 style={{
                   background: 'none',
-                  border: '1px solid #d8e3f0',
-                  color: '#666',
+                  border: 'var(--border-width-base) solid var(--color-border)',
+                  color: 'var(--color-text-muted)',
                   cursor: 'pointer',
                   fontSize: '14px',
                   padding: '9px 14px',
@@ -534,7 +534,7 @@ export default function Menu() {
                 style={{
                   padding: '10px',
                   borderRadius: '8px',
-                  border: '1px solid #ccc'
+                  border: 'var(--border-width-base) solid var(--color-border-neutral)'
                 }}
               />
 
@@ -546,7 +546,7 @@ export default function Menu() {
                 style={{
                   padding: '10px',
                   borderRadius: '8px',
-                  border: '1px solid #ccc'
+                  border: 'var(--border-width-base) solid var(--color-border-neutral)'
                 }}
               />
 
@@ -558,7 +558,7 @@ export default function Menu() {
                 style={{
                   padding: '10px',
                   borderRadius: '8px',
-                  border: '1px solid #ccc',
+                  border: 'var(--border-width-base) solid var(--color-border-neutral)',
                   gridColumn: 'span 2'
                 }}
               />
@@ -571,7 +571,7 @@ export default function Menu() {
                 style={{
                   padding: '10px',
                   borderRadius: '8px',
-                  border: '1px solid #ccc',
+                  border: 'var(--border-width-base) solid var(--color-border-neutral)',
                 }}
               >
                 <option value="">
@@ -597,7 +597,7 @@ export default function Menu() {
                 style={{
                   padding: '10px',
                   borderRadius: '8px',
-                  border: '1px solid #ccc',
+                  border: 'var(--border-width-base) solid var(--color-border-neutral)',
                 }}
               >
                 <option value="">Tipo da gaita (Todos)</option>
@@ -615,8 +615,8 @@ export default function Menu() {
               style={{
                 width: '100%',
                 padding: '12px',
-                backgroundColor: '#007bff',
-                color: 'white',
+                backgroundColor: 'var(--color-primary)',
+                color: 'var(--color-text-on-primary)',
                 border: 'none',
                 borderRadius: '8px',
                 fontWeight: 'bold',
@@ -629,20 +629,20 @@ export default function Menu() {
             <hr
               style={{
                 border: 'none',
-                borderTop: '1px solid #eee',
+                borderTop: 'var(--border-width-base) solid var(--color-border-divider)',
                 margin: '25px 0'
               }}
             />
 
             {/* Lista de Cards */}
-            <h3 style={{ margin: '0 0 15px', color: '#444' }}>
+            <h3 style={{ margin: '0 0 15px', color: 'var(--color-text-faint)' }}>
               Resultados
             </h3>
 
             {carregando ? (
-              <p style={{ color: '#666' }}>Carregando tablaturas...</p>
+              <p style={{ color: 'var(--color-text-muted)' }}>Carregando tablaturas...</p>
             ) : resultados.length === 0 ? (
-              <p style={{ color: '#888' }}>
+              <p style={{ color: 'var(--color-text-light)' }}>
                 Nenhuma tablatura encontrada.
               </p>
             ) : (
@@ -660,27 +660,27 @@ export default function Menu() {
                       navigate('/VisualizarTabs', { state: { tab } })
                     }
                     style={{
-                      backgroundColor: '#f8fafc',
-                      border: '1px solid #e2e8f0',
+                      backgroundColor: 'var(--color-bg-card-alt)',
+                      border: 'var(--border-width-base) solid var(--color-border-alt)',
                       borderRadius: '12px',
                       padding: '16px',
                       cursor: 'pointer',
                       transition: '0.2s ease',
-                      boxShadow: '0 2px 6px rgba(0,0,0,0.04)'
+                      boxShadow: '0 2px 6px var(--shadow-card-softer)'
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = '#007bff';
+                      e.currentTarget.style.borderColor = 'var(--color-primary)';
                       e.currentTarget.style.transform = 'translateY(-2px)';
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = '#e2e8f0';
+                      e.currentTarget.style.borderColor = 'var(--color-border-alt)';
                       e.currentTarget.style.transform = 'translateY(0)';
                     }}
                   >
                     <h4
                       style={{
                         margin: '0 0 6px',
-                        color: '#007bff',
+                        color: 'var(--color-primary)',
                         fontSize: '18px'
                       }}
                     >
@@ -691,7 +691,7 @@ export default function Menu() {
                       style={{
                         margin: '3px 0',
                         fontSize: '14px',
-                        color: '#555'
+                        color: 'var(--color-text-secondary)'
                       }}
                     >
                       <strong>Autor da Música:</strong> {tab.autor_musica}
@@ -701,7 +701,7 @@ export default function Menu() {
                       style={{
                         margin: '3px 0',
                         fontSize: '14px',
-                        color: '#555'
+                        color: 'var(--color-text-secondary)'
                       }}
                     >
                       <strong>Autor da Tab:</strong> {tab.autor_tab}
@@ -715,7 +715,7 @@ export default function Menu() {
                         gap: '10px',
                         marginTop: '12px',
                         fontSize: '12px',
-                        color: '#888'
+                        color: 'var(--color-text-light)'
                       }}
                     >
                       <span>
@@ -741,7 +741,7 @@ export default function Menu() {
               style={{
                 marginTop: '30px',
                 paddingTop: '20px',
-                borderTop: '1px solid #eee'
+                borderTop: 'var(--border-width-base) solid var(--color-border-divider)'
               }}
             >
               <button
@@ -749,14 +749,14 @@ export default function Menu() {
                 style={{
                   width: '100%',
                   padding: '16px',
-                  backgroundColor: '#007bff',
-                  color: 'white',
+                  backgroundColor: 'var(--color-primary)',
+                  color: 'var(--color-text-on-primary)',
                   border: 'none',
                   cursor: 'pointer',
                   fontSize: '16px',
                   fontWeight: 'bold',
                   borderRadius: '14px',
-                  boxShadow: '0 6px 18px rgba(0,123,255,0.25)',
+                  boxShadow: '0 6px 18px var(--shadow-button-primary)',
                   transition: '0.2s'
                 }}
                 onMouseEnter={(e) => {

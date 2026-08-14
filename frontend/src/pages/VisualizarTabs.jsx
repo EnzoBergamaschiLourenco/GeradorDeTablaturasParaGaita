@@ -154,7 +154,7 @@ Pleased the Lord
         inset: 0,
         width: '100vw',
         height: '100vh',
-        backgroundColor: '#f4f7fb',
+        backgroundColor: 'var(--color-bg-page)',
         fontFamily: 'Arial, sans-serif',
         display: 'flex',
         overflow: 'hidden'
@@ -174,13 +174,13 @@ Pleased the Lord
           onClick={() => navigate('/')}
           style={{
             padding: '10px 18px',
-            backgroundColor: 'white',
-            color: '#007bff',
+            backgroundColor: 'var(--color-bg-card)',
+            color: 'var(--color-primary)',
             border: 'none',
             borderRadius: '12px',
             cursor: 'pointer',
             fontWeight: 'bold',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+            boxShadow: '0 4px 12px var(--shadow-card)',
             display: 'flex',
             alignItems: 'center',
             gap: '8px'
@@ -200,17 +200,17 @@ Pleased the Lord
           alignItems: 'center',
           padding: '20px', // ajustado para ocupar melhor o espaço
           boxSizing: 'border-box',
-          backgroundColor: '#f4f7fb'
+          backgroundColor: 'var(--color-bg-page)'
         }}
       >
         <div style={{
           width: '100%',
           height: '80%',
           maxWidth: '90%', // aumentado para melhor aproveitamento
-          backgroundColor: '#fffbe6',
+          backgroundColor: 'var(--color-bg-paper)',
           borderRadius: '16px',
-          border: '1px solid #e6db55',
-          boxShadow: '0 10px 30px rgba(0,0,0,0.05)',
+          border: 'var(--border-width-base) solid var(--color-border-paper)',
+          boxShadow: '0 10px 30px var(--shadow-card-soft)',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden' // para garantir que o conteúdo não vaze
@@ -230,7 +230,7 @@ Pleased the Lord
                 fontSize: '18px',
                 resize: 'none',
                 lineHeight: '1.6',
-                color: '#333'
+                color: 'var(--color-text-main)'
               }}
             />
           ) : (
@@ -243,7 +243,7 @@ Pleased the Lord
                 fontSize: '18px',
                 whiteSpace: 'pre-wrap',
                 lineHeight: '1.6',
-                color: '#333'
+                color: 'var(--color-text-main)'
               }}
             >
               {textoTablatura}
@@ -257,8 +257,8 @@ Pleased the Lord
         style={{
           width: '50%',
           height: '100%',
-          backgroundColor: 'white',
-          borderLeft: '1px solid #e2e8f0',
+          backgroundColor: 'var(--color-bg-card)',
+          borderLeft: 'var(--border-width-base) solid var(--color-border-alt)',
           boxSizing: 'border-box',
           padding: '60px 40px',
           overflowY: 'auto',
@@ -273,17 +273,17 @@ Pleased the Lord
           margin: '0 auto',
           padding: '40px',
           borderRadius: '24px',
-          boxShadow: '0 15px 40px rgba(0,0,0,0.08)',
-          backgroundColor: 'white'
+          boxShadow: '0 15px 40px var(--shadow-card)',
+          backgroundColor: 'var(--color-bg-card)'
         }}>
 
           {/* Topo do Card - Informações */}
-          <h2 style={{ margin: '0 0 10px 0', color: '#007bff', fontSize: '36px' }}>
+          <h2 style={{ margin: '0 0 10px 0', color: 'var(--color-primary)', fontSize: '36px' }}>
             {tabData.musica}
           </h2>
-          <hr style={{ border: 'none', borderTop: '2px solid #f0f0f0', marginBottom: '20px' }} />
+          <hr style={{ border: 'none', borderTop: '2px solid var(--color-border-divider-alt)', marginBottom: '20px' }} />
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '16px', color: '#555' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '16px', color: 'var(--color-text-secondary)' }}>
             <p style={{ margin: 0 }}><strong>Autor da Música:</strong> {tabData.autorMusica}</p>
             <p style={{ margin: 0 }}><strong>Autor da Tab:</strong> {tabData.criador}</p>
             <p style={{ margin: 0 }}><strong>MIDI Utilizado:</strong> {tabData.midiUtilizado}</p>
@@ -291,7 +291,7 @@ Pleased the Lord
             <p style={{ margin: 0 }}><strong>Data de Criação:</strong> {tabData.dataCriacao}</p>
           </div>
 
-          <hr style={{ border: 'none', borderTop: '2px solid #f0f0f0', margin: '30px 0' }} />
+          <hr style={{ border: 'none', borderTop: '2px solid var(--color-border-divider-alt)', margin: '30px 0' }} />
 
           {/* Base do Card - Ações */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
@@ -301,9 +301,9 @@ Pleased the Lord
               onClick={handleCurtida}
               style={{
                 padding: '16px',
-                backgroundColor: curtido ? '#e8f5e9' : '#f0f4f8',
-                color: curtido ? '#2e7d32' : '#333',
-                border: curtido ? '2px solid #4caf50' : '2px solid #d8e3f0',
+                backgroundColor: curtido ? 'var(--color-bg-liked)' : 'var(--color-bg-not-liked)',
+                color: curtido ? 'var(--color-text-success)' : 'var(--color-text-main)',
+                border: curtido ? '2px solid var(--color-border-liked)' : '2px solid var(--color-border)',
                 cursor: 'pointer',
                 fontSize: '18px',
                 fontWeight: 'bold',
@@ -316,7 +316,7 @@ Pleased the Lord
               }}
             >
               {curtido ? '💚 Curtido' : '🤍 Curtir'}
-              <span style={{ backgroundColor: curtido ? '#c8e6c9' : '#e2e8f0', padding: '4px 10px', borderRadius: '20px', fontSize: '14px' }}>
+              <span style={{ backgroundColor: curtido ? 'var(--color-bg-liked-badge)' : 'var(--color-border-alt)', padding: '4px 10px', borderRadius: '20px', fontSize: '14px' }}>
                 {totalCurtidas}
               </span>
             </button>
@@ -330,14 +330,14 @@ Pleased the Lord
                     disabled={salvando}
                     style={{
                       padding: '14px',
-                      backgroundColor: '#28a745',
-                      color: 'white',
+                      backgroundColor: 'var(--color-success)',
+                      color: 'var(--color-text-on-primary)',
                       border: 'none',
                       cursor: salvando ? 'not-allowed' : 'pointer',
                       fontSize: '16px',
                       fontWeight: 'bold',
                       borderRadius: '12px',
-                      boxShadow: '0 4px 12px rgba(40,167,69,0.3)'
+                      boxShadow: '0 4px 12px var(--shadow-button-success)'
                     }}
                   >
                     {salvando ? 'Salvando...' : '💾 Salvar alterações'}
@@ -347,14 +347,14 @@ Pleased the Lord
                     onClick={() => setEditando(true)}
                     style={{
                       padding: '14px',
-                      backgroundColor: '#ffc107',
-                      color: 'black',
+                      backgroundColor: 'var(--color-warning)',
+                      color: 'var(--color-text-on-warning)',
                       border: 'none',
                       cursor: 'pointer',
                       fontSize: '16px',
                       fontWeight: 'bold',
                       borderRadius: '12px',
-                      boxShadow: '0 4px 12px rgba(255,193,7,0.3)'
+                      boxShadow: '0 4px 12px var(--shadow-button-warning)'
                     }}
                   >
                     ✏️ Editar Tablatura
@@ -366,16 +366,16 @@ Pleased the Lord
                   style={{
                     padding: '14px',
                     backgroundColor: 'transparent',
-                    color: '#dc3545',
-                    border: '2px solid #dc3545',
+                    color: 'var(--color-danger-strong)',
+                    border: '2px solid var(--color-danger-strong)',
                     cursor: 'pointer',
                     fontSize: '16px',
                     fontWeight: 'bold',
                     borderRadius: '12px',
                     transition: '0.2s'
                   }}
-                  onMouseEnter={(e) => { e.target.style.backgroundColor = '#dc3545'; e.target.style.color = 'white'; }}
-                  onMouseLeave={(e) => { e.target.style.backgroundColor = 'transparent'; e.target.style.color = '#dc3545'; }}
+                  onMouseEnter={(e) => { e.target.style.backgroundColor = 'var(--color-danger-strong)'; e.target.style.color = 'var(--color-text-on-primary)'; }}
+                  onMouseLeave={(e) => { e.target.style.backgroundColor = 'transparent'; e.target.style.color = 'var(--color-danger-strong)'; }}
                 >
                   🗑️ Deletar Tablatura
                 </button>

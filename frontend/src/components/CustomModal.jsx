@@ -5,10 +5,10 @@ export default function CustomModal({ isOpen, title, message, type = 'info', onC
   return (
     <div style={overlayStyle}>
       <div style={modalStyle}>
-        <h3 style={{ color: type === 'error' || type === 'warning' ? '#dc3545' : '#007bff', marginBottom: '10px' }}>
+        <h3 style={{ color: type === 'error' || type === 'warning' ? 'var(--color-danger-strong)' : 'var(--color-primary)', marginBottom: '10px' }}>
           {title || 'Confirmação'}
         </h3>
-        <p style={{ color: '#333', marginBottom: '20px', fontSize: '15px' }}>
+        <p style={{ color: 'var(--color-text-main)', marginBottom: '20px', fontSize: '15px' }}>
           {message}
         </p>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
@@ -18,11 +18,11 @@ export default function CustomModal({ isOpen, title, message, type = 'info', onC
               Cancelar
             </button>
           )}
-          <button 
-            style={{ 
-              ...confirmButtonStyle, 
-              backgroundColor: type === 'warning' ? '#dc3545' : '#007bff' 
-            }} 
+          <button
+            style={{
+              ...confirmButtonStyle,
+              backgroundColor: type === 'warning' ? 'var(--color-danger-strong)' : 'var(--color-primary)'
+            }}
             onClick={onConfirm || onClose}
           >
             Confirmar
@@ -37,7 +37,7 @@ export default function CustomModal({ isOpen, title, message, type = 'info', onC
 const overlayStyle = {
   position: 'fixed',
   inset: 0,
-  backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  backgroundColor: 'var(--color-overlay-modal)',
   display: 'flex',
   justifyContent: 'center',
   alignItems: 'center',
@@ -45,18 +45,18 @@ const overlayStyle = {
 };
 
 const modalStyle = {
-  backgroundColor: 'white',
+  backgroundColor: 'var(--color-bg-card)',
   padding: '24px',
   borderRadius: '16px',
   width: '100%',
   maxWidth: '380px',
-  boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+  boxShadow: '0 10px 25px var(--shadow-note-default)',
   textAlign: 'left'
 };
 
 const confirmButtonStyle = {
   padding: '10px 20px',
-  color: 'white',
+  color: 'var(--color-text-on-primary)',
   border: 'none',
   borderRadius: '8px',
   cursor: 'pointer',
@@ -65,8 +65,8 @@ const confirmButtonStyle = {
 
 const cancelButtonStyle = {
   padding: '10px 20px',
-  backgroundColor: '#e2e8f0',
-  color: '#333',
+  backgroundColor: 'var(--color-border-alt)',
+  color: 'var(--color-text-main)',
   border: 'none',
   borderRadius: '8px',
   cursor: 'pointer',

@@ -73,7 +73,7 @@ export default function Login() {
         inset: 0,
         width: '100vw',
         height: '100vh',
-        backgroundColor: '#f4f7fb',
+        backgroundColor: 'var(--color-bg-page)',
         fontFamily: 'Arial, sans-serif',
         display: 'flex',
         justifyContent: 'center',
@@ -85,18 +85,18 @@ export default function Login() {
         style={{
           width: '100%',
           maxWidth: '420px',
-          backgroundColor: 'white',
+          backgroundColor: 'var(--color-bg-card)',
           padding: '40px',
           borderRadius: '24px',
-          boxShadow: '0 15px 40px rgba(0,0,0,0.08)',
+          boxShadow: '0 15px 40px var(--shadow-card)',
           textAlign: 'center'
         }}
       >
-        <h1 style={{ color: '#007bff', marginBottom: '8px' }}>
+        <h1 style={{ color: 'var(--color-primary)', marginBottom: '8px' }}>
           HarmonicaTabs
         </h1>
 
-        <p style={{ color: '#666', marginBottom: '25px' }}>
+        <p style={{ color: 'var(--color-text-muted)', marginBottom: '25px' }}>
           {isRegistering
             ? 'Crie sua conta para começar'
             : 'Faça login para continuar'}
@@ -191,7 +191,7 @@ export default function Login() {
             </p>
 
             <div style={{ marginTop: '15px' }}>
-              <p style={{ color: '#666' }}>
+              <p style={{ color: 'var(--color-text-muted)' }}>
                 {isRegistering
                   ? 'Já tem conta?'
                   : 'Não tem conta?'}
@@ -228,31 +228,33 @@ const inputStyle = {
   padding: '14px',
   marginBottom: '12px',
   borderRadius: '12px',
-  border: '1px solid #d8e3f0',
+  border: 'var(--border-width-base) solid var(--color-border)',
   outline: 'none',
   fontSize: '14px',
-  boxSizing: 'border-box'
+  boxSizing: 'border-box',
+  backgroundColor: 'var(--color-bg-card)',
+  color: 'var(--color-text-main)'
 };
 
 const buttonStyle = {
   width: '100%',
   padding: '14px',
-  backgroundColor: '#007bff',
-  color: 'white',
+  backgroundColor: 'var(--color-primary)',
+  color: 'var(--color-text-on-primary)',
   border: 'none',
   borderRadius: '12px',
   cursor: 'pointer',
   fontWeight: 'bold',
   marginTop: '5px',
-  boxShadow: '0 6px 18px rgba(0,123,255,0.25)'
+  boxShadow: '0 6px 18px var(--shadow-button-primary)'
 };
 
 const linkStyle = {
-  color: '#007bff',
+  color: 'var(--color-primary)',
   cursor: 'pointer',
   textDecoration: 'underline',
   fontSize: '13px',
   marginTop: '10px'
 };
 
-const labelStyle = { fontSize: '13px', color: '#666', fontWeight: 'bold', marginBottom: '6px', display: 'block' };
+const labelStyle = { fontSize: '13px', color: 'var(--color-text-muted)', fontWeight: 'bold', marginBottom: '6px', display: 'block' };

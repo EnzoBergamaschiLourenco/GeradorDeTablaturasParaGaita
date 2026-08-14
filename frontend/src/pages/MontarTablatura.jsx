@@ -555,10 +555,10 @@ export default function MontarTablatura() {
         {isLoading && (
           <div style={{
             position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-            backgroundColor: 'rgba(128, 128, 128, 0.5)', display: 'flex',
+            backgroundColor: 'var(--color-overlay-loading)', display: 'flex',
             justifyContent: 'center', alignItems: 'center', zIndex: 9999
           }}>
-            <div style={{ backgroundColor: 'white', padding: '20px 40px', borderRadius: '8px', fontSize: '18px', color: '#333' }}>
+            <div style={{ backgroundColor: 'var(--color-bg-card)', padding: '20px 40px', borderRadius: '8px', fontSize: '18px', color: 'var(--color-text-main)' }}>
               Carregando...
             </div>
           </div>
@@ -572,23 +572,23 @@ export default function MontarTablatura() {
           onClose={closeModal}
         />
         <div style={{ ...s.mainCard, maxWidth: '800px', textAlign: 'center' }}>
-          <h2 style={{ color: '#007bff', marginBottom: 5 }}>{nome}</h2>
-          <p style={{ color: '#666', marginBottom: 30 }}>{autor}</p>
+          <h2 style={{ color: 'var(--color-primary)', marginBottom: 5 }}>{nome}</h2>
+          <p style={{ color: 'var(--color-text-muted)', marginBottom: 30 }}>{autor}</p>
 
           {midiSelecionado && (
             <div style={{
-              display: 'flex', alignItems: 'center', backgroundColor: '#f8fafc',
-              border: '1px solid #e2e8f0', borderRadius: '14px', padding: '15px',
+              display: 'flex', alignItems: 'center', backgroundColor: 'var(--color-bg-card-alt)',
+              border: 'var(--border-width-base) solid var(--color-border-alt)', borderRadius: '14px', padding: '15px',
               boxSizing: 'border-box', marginBottom: '25px', textAlign: 'left'
             }}>
-              <div style={{ width: 42, height: 42, backgroundColor: '#e8f0fe', color: '#1a73e8', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRadius: '10px', fontSize: '18px' }}>
+              <div style={{ width: 42, height: 42, backgroundColor: 'var(--color-bg-icon-secondary)', color: 'var(--color-secondary-blue)', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRadius: '10px', fontSize: '18px' }}>
                 🎵
               </div>
               <div style={{ flex: 1, paddingLeft: 15 }}>
-                <span style={{ color: '#333', fontWeight: 'bold', display: 'block', fontSize: '14px' }}>
+                <span style={{ color: 'var(--color-text-main)', fontWeight: 'bold', display: 'block', fontSize: '14px' }}>
                   {midiSelecionado.arquivo_midi}
                 </span>
-                <small style={{ color: '#666', fontSize: 12, display: 'block', marginBottom: '6px' }}>
+                <small style={{ color: 'var(--color-text-muted)', fontSize: 12, display: 'block', marginBottom: '6px' }}>
                   Avalie este arquivo MIDI:
                 </small>
                 <div style={{ display: 'flex', gap: '5px' }}>
@@ -596,7 +596,7 @@ export default function MontarTablatura() {
                     <span key={star} onClick={() => setNotaAvaliacao(star)}
                       style={{
                         cursor: 'pointer', fontSize: '26px',
-                        color: star <= notaAvaliacao ? '#ffc107' : '#cbd5e1',
+                        color: star <= notaAvaliacao ? 'var(--color-warning)' : 'var(--color-border-soft)',
                         transition: 'color 0.1s'
                       }}>
                       ★
@@ -623,7 +623,7 @@ export default function MontarTablatura() {
             onChange={e => setTextoTablatura(e.target.value)}
             style={{
               width: '100%', height: '300px', fontFamily: 'monospace', fontSize: '16px',
-              padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1'
+              padding: '12px', borderRadius: '8px', border: 'var(--border-width-base) solid var(--color-border-soft)'
             }}
           />
 
@@ -641,10 +641,10 @@ export default function MontarTablatura() {
       {isLoading && (
         <div style={{
           position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-          backgroundColor: 'rgba(128, 128, 128, 0.5)', display: 'flex',
+          backgroundColor: 'var(--color-overlay-loading)', display: 'flex',
           justifyContent: 'center', alignItems: 'center', zIndex: 9999
         }}>
-          <div style={{ backgroundColor: 'white', padding: '20px 40px', borderRadius: '8px', fontSize: '18px', color: '#333' }}>
+          <div style={{ backgroundColor: 'var(--color-bg-card)', padding: '20px 40px', borderRadius: '8px', fontSize: '18px', color: 'var(--color-text-main)' }}>
             Carregando...
           </div>
         </div>
@@ -661,11 +661,11 @@ export default function MontarTablatura() {
         {/* COLUNA ESQUERDA */}
         <div style={{ ...s.columnBox, flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-            <h3 style={{ color: '#007bff', fontSize: '18px', fontWeight: 'bold', margin: 0 }}>
+            <h3 style={{ color: 'var(--color-primary)', fontSize: '18px', fontWeight: 'bold', margin: 0 }}>
               Configurações da Gaita
             </h3>
             <button onClick={recarregarTraducoes} style={s.btnRecarregar} title="Recarregar e Traduzir Novamente">↻</button>
-            <p style={{ fontSize: '50%', color: '#666' }}>Carregar comandos de gaita</p>
+            <p style={{ fontSize: '50%', color: 'var(--color-text-muted)' }}>Carregar comandos de gaita</p>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '25px' }}>
@@ -709,7 +709,7 @@ export default function MontarTablatura() {
             {partesAdicionadas.length > 0 && (
               <div style={s.containerCardsMidi}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#4a5568' }}>Partes Ativas:</span>
+                  <span style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--color-text-slate-1)' }}>Partes Ativas:</span>
                 </div>
 
                 {partesAdicionadas.map(parte => {
@@ -752,7 +752,7 @@ export default function MontarTablatura() {
                           </div>
 
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px' }} onClick={e => e.stopPropagation()}>
-                            <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 'bold' }}>Volume</span>
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-slate-2)', fontWeight: 'bold' }}>Volume</span>
                             <input
                               type="range"
                               min="0"
@@ -773,7 +773,7 @@ export default function MontarTablatura() {
                       {cardExpandido && (
                         <div style={s.notasCardInternoContainer}>
                           {!notasPorParte[parte.id] ? (
-                            <span style={{ color: '#a0aec0', fontSize: '12px', fontStyle: 'italic' }}>Aguardando tradução...</span>
+                            <span style={{ color: 'var(--color-text-slate-3)', fontSize: '12px', fontStyle: 'italic' }}>Aguardando tradução...</span>
                           ) : (
                             notasPorParte[parte.id].map((nota, index) => {
                               const tempoSeguro = (typeof tempoAtual === 'number' && !isNaN(tempoAtual)) ? tempoAtual : 0;
@@ -827,12 +827,12 @@ export default function MontarTablatura() {
           height: 'calc(100vh - 60px)', display: 'flex', flexDirection: 'column', paddingBottom: '25px'
         }}>
           <div style={{
-            marginBottom: '20px', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px',
+            marginBottom: '20px', borderBottom: 'var(--border-width-base) solid var(--color-border-alt)', paddingBottom: '15px',
             flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px'
           }}>
             <div style={{ flex: 1 }}>
-              <h2 style={{ color: '#333', margin: 0, fontSize: '24px' }}>{nome}</h2>
-              <span style={{ color: '#666' }}>{autor}</span>
+              <h2 style={{ color: 'var(--color-text-main)', margin: 0, fontSize: '24px' }}>{nome}</h2>
+              <span style={{ color: 'var(--color-text-muted)' }}>{autor}</span>
             </div>
 
             <div className="controles-player">
@@ -881,7 +881,7 @@ export default function MontarTablatura() {
               {linhasLetra.map((linha, index) => (
                 <div key={linha.id} style={s.linhaContainer}>
                   <div style={s.zonaDrop} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, index)}>
-                    {linha.notas.length === 0 && <span style={{ color: '#cbd5e1', fontSize: '12px' }}>Solte notas aqui...</span>}
+                    {linha.notas.length === 0 && <span style={{ color: 'var(--color-border-soft)', fontSize: '12px' }}>Solte notas aqui...</span>}
                     {linha.notas.map(nota => (
                       <div key={nota.id} style={s.cardNotaAlocada} onClick={() => removerNotaDaLinha(index, nota.id)} title="Clique para remover">
                         {nota.valor}
@@ -889,13 +889,13 @@ export default function MontarTablatura() {
                     ))}
                     <input type="text" placeholder="+" style={s.inputNotaManual} onKeyDown={(e) => handleAdicionarNotaManual(e, index)} />
                   </div>
-                  <div style={s.textoLetra}>{linha.texto || <span style={{ color: '#cbd5e1', fontStyle: 'italic' }}>[Linha vazia]</span>}</div>
+                  <div style={s.textoLetra}>{linha.texto || <span style={{ color: 'var(--color-border-soft)', fontStyle: 'italic' }}>[Linha vazia]</span>}</div>
                 </div>
               ))}
             </div>
           </div>
 
-          <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end', paddingTop: '15px', backgroundColor: 'white' }}>
+          <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end', paddingTop: '15px', backgroundColor: 'var(--color-bg-card)' }}>
             <button style={{ ...s.btnContinuar, position: 'relative', bottom: 'auto', right: 'auto' }} onClick={() => setMostrarPreview(true)}>
               Continuar ➔
             </button>
@@ -906,20 +906,20 @@ export default function MontarTablatura() {
       {modalAjusteAberto && (
         <div style={s.modalOverlay}>
           <div style={s.modalContent}>
-            <h3 style={{ marginTop: 0, color: '#1e293b' }}>Ajuste de Notas</h3>
-            <p style={{ color: '#475569', fontSize: '14px', lineHeight: '1.5' }}>
+            <h3 style={{ marginTop: 0, color: 'var(--color-text-slate-4)' }}>Ajuste de Notas</h3>
+            <p style={{ color: 'var(--color-text-slate-5)', fontSize: '14px', lineHeight: '1.5' }}>
               A parte <strong>{parteEmAjuste?.nome}</strong> possui notas que não existem fisicamente na {tipoGaita} em {tomGaita}.
               Escolha as adaptações abaixo para contornar isso:
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', margin: '20px 0', maxHeight: '400px', overflowY: 'auto' }}>
               {notasPendentes.map((nota, index) => (
-                <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--color-bg-card-alt)', padding: '12px', borderRadius: '8px', border: 'var(--border-width-base) solid var(--color-border-alt)' }}>
                   <div>
-                    <span style={{ fontWeight: 'bold', display: 'block', fontSize: '15px', color: '#0f172a' }}>
+                    <span style={{ fontWeight: 'bold', display: 'block', fontSize: '15px', color: 'var(--color-text-slate-6)' }}>
                       Nota Original: {midiToNoteName(nota.nota_midi_original)}
                     </span>
-                    <span style={{ fontSize: '12px', color: '#64748b' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--color-text-slate-2)' }}>
                       Comando sugerido: <strong>{nota.sugestao_comando}</strong>
                     </span>
                   </div>
@@ -927,7 +927,7 @@ export default function MontarTablatura() {
                   <select
                     value={mapeamentoUsuario[nota.nota_midi_original]}
                     onChange={(e) => setMapeamentoUsuario({ ...mapeamentoUsuario, [nota.nota_midi_original]: e.target.value })}
-                    style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', cursor: 'pointer', fontWeight: 'bold' }}
+                    style={{ padding: '8px', borderRadius: '6px', border: 'var(--border-width-base) solid var(--color-border-soft)', outline: 'none', cursor: 'pointer', fontWeight: 'bold' }}
                   >
                     {comandosDaGaita.map(cmd => (
                       <option key={cmd} value={cmd}>{cmd}</option>
