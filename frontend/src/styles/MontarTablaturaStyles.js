@@ -27,8 +27,10 @@ export const btnPlayAll = { padding: '6px 12px', backgroundColor: 'var(--color-p
 export const notasCardInternoContainer = { display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '10px', backgroundColor: 'var(--color-bg-card-tertiary)', borderRadius: '8px', border: 'var(--border-width-base) solid var(--color-border-alt)', marginBottom: '14px' };
 
 /* === Barra de Progresso Redesenhada === */
-export const barraFundo = { width: '100%', height: '14px', backgroundColor: 'var(--color-border-alt)', borderRadius: '10px', marginTop: '12px', cursor: 'pointer', overflow: 'hidden', boxShadow: 'inset 0 1px 3px var(--shadow-note-default)' };
-export const barraProgresso = { height: '100%', backgroundColor: 'var(--color-primary)', transition: 'width 0.1s linear', borderRadius: '10px' };
+export const barraFundo = { position: 'relative', width: '100%', height: '14px', backgroundColor: 'var(--color-border-alt)', borderRadius: '10px', marginTop: '16px', cursor: 'pointer', boxShadow: 'inset 0 1px 3px var(--shadow-note-default)' };
+export const barraProgresso = { height: '100%', backgroundColor: 'var(--color-primary)', borderRadius: '10px', pointerEvents: 'none' };
+export const barraThumb = { position: 'absolute', top: '50%', width: '16px', height: '16px', borderRadius: '50%', backgroundColor: 'var(--color-primary)', border: '2px solid var(--color-bg-card)', boxShadow: '0 1px 4px var(--shadow-note-default)', transform: 'translate(-50%, -50%)', pointerEvents: 'none' };
+export const tempoLabel = { display: 'flex', justifyContent: 'flex-end', marginTop: '6px', fontSize: '12px', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-slate-2)', fontWeight: 'bold' };
 
 export const modalOverlay = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'var(--color-overlay-modal-strong)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 };
 export const modalContent = { backgroundColor: 'var(--color-bg-card)', padding: '30px', borderRadius: '16px', width: '90%', maxWidth: '550px', boxShadow: '0 10px 25px var(--shadow-note-selected)' };

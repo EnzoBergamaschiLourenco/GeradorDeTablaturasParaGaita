@@ -79,7 +79,7 @@ export default function MontarTablatura() {
   const [textoTablatura, setTextoTablatura] = useState('');
 
   const {
-    togglePlayAll, stop, seek, duration, isPlaying, playingId, tempoAtual, alterarVolume, volumes, changeSpeed, playbackSpeed = {}
+    togglePlayAll, stop, seek, duration, isPlaying, playingId, tempoAtual, progress, alterarVolume, volumes, changeSpeed, playbackSpeed = {}
   } = useMidiPlayer();
 
   // Pausa o player automaticamente quando entra em carregamento
@@ -89,43 +89,12 @@ export default function MontarTablatura() {
     }
   }, [isLoading, stop]);
 
-  // ---------- BARRA DE PROGRESSO SUAVE (resolve bug após pausa/retomada) ----------
-  const [progressoVisual, setProgressoVisual] = useState(0);
-  const tempoAtualRef = useRef(0);      // último tempo real conhecido do hook
-  const lastTimestampRef = useRef(0);   // performance.now() do último update
-  const animFrameRef = useRef(null);
-
-  // Sincroniza os refs sempre que o hook atualizar o tempo
-  useEffect(() => {
-    if (typeof tempoAtual === 'number' && !isNaN(tempoAtual)) {
-      tempoAtualRef.current = tempoAtual;
-      lastTimestampRef.current = performance.now();
-      // Atualiza visual imediatamente para não perder precisão na pausa
-      setProgressoVisual(duration > 0 ? (tempoAtual / duration) * 100 : 0);
-    }
-  }, [tempoAtual, duration]);
-
-  // Loop de animação durante a reprodução
-  useEffect(() => {
-    if (isPlaying && playingId === 'ALL' && duration > 0) {
-      const tick = () => {
-        const now = performance.now();
-        const deltaSec = (now - lastTimestampRef.current) / 1000;
-        const tempoEstimado = Math.min(tempoAtualRef.current + deltaSec, duration);
-        setProgressoVisual((tempoEstimado / duration) * 100);
-        animFrameRef.current = requestAnimationFrame(tick);
-      };
-      animFrameRef.current = requestAnimationFrame(tick);
-    } else {
-      if (animFrameRef.current) {
-        cancelAnimationFrame(animFrameRef.current);
-        animFrameRef.current = null;
-      }
-    }
-    return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    };
-  }, [isPlaying, playingId, duration]);
+  const formatarTempo = (segundos) => {
+    const valor = (typeof segundos === 'number' && isFinite(segundos) && segundos > 0) ? segundos : 0;
+    const min = Math.floor(valor / 60);
+    const sec = Math.floor(valor % 60);
+    return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  };
 
   // Geração do texto da tablatura
   useEffect(() => {
@@ -202,10 +171,6 @@ export default function MontarTablatura() {
   const alternarExpansaoParte = (parteId) => {
     setCardsExpandidos(prev => ({ ...prev, [parteId]: !prev[parteId] }));
   };
-
-  useEffect(() => {
-    console.log("Tempo atual recebido no componente:", tempoAtual);
-  }, [tempoAtual]);
 
   const notaEstaTocando = (nota, tempo) => {
     if (!nota) return false;
@@ -422,15 +387,49 @@ export default function MontarTablatura() {
     }
   };
 
-  const handleSeekClick = (e, idClicado) => {
-    // Barra de progresso habilitada apenas quando pausado
-    if (isPlaying) return;
+  // ---------- ARRASTAR NA BARRA DE PROGRESSO (estilo YouTube) ----------
+  const [arrastandoBarra, setArrastandoBarra] = useState(false);
+  const [percentArrasto, setPercentArrasto] = useState(0);
+  const barraRectRef = useRef(null);
+  const seekRef = useRef(seek);
+  useEffect(() => { seekRef.current = seek; });
+
+  const calcularPercentDoEvento = (clientX, rect) => {
+    const x = clientX - rect.left;
+    return Math.max(0, Math.min(100, (x / rect.width) * 100));
+  };
+
+  const handleBarraMouseDown = (e, idClicado) => {
     if (playingId !== idClicado) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const percent = Math.max(0, Math.min(100, (clickX / rect.width) * 100));
-    seek(percent);
+    barraRectRef.current = rect;
+    const percent = calcularPercentDoEvento(e.clientX, rect);
+    setPercentArrasto(percent);
+    setArrastandoBarra(true);
+    seekRef.current(percent);
   };
+
+  useEffect(() => {
+    if (!arrastandoBarra) return;
+
+    const handleMove = (e) => {
+      if (!barraRectRef.current) return;
+      setPercentArrasto(calcularPercentDoEvento(e.clientX, barraRectRef.current));
+    };
+    const handleUp = (e) => {
+      if (barraRectRef.current) {
+        seekRef.current(calcularPercentDoEvento(e.clientX, barraRectRef.current));
+      }
+      setArrastandoBarra(false);
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [arrastandoBarra]);
 
   // ================= SELEÇÃO & DRAG AND DROP =================
   const handleNotaClick = (e, parteId, nota, index) => {
@@ -860,18 +859,30 @@ export default function MontarTablatura() {
                 >
                   {playingId === 'ALL' && isPlaying ? '⏸ Pausar Música' : '▶ Tocar Música'}
                 </button>
-                {playingId === 'ALL' && (
-                  <div
-                    style={{
-                      ...s.barraFundo,
-                      pointerEvents: isPlaying ? 'none' : 'auto',
-                      cursor: isPlaying ? 'default' : 'pointer'
-                    }}
-                    onClick={(e) => handleSeekClick(e, 'ALL')}
-                  >
-                    <div style={{ ...s.barraProgresso, width: `${progressoVisual}%` }} />
-                  </div>
-                )}
+                {playingId === 'ALL' && (() => {
+                  const percentExibido = arrastandoBarra ? percentArrasto : progress;
+                  const tempoExibido = arrastandoBarra ? (percentArrasto / 100) * duration : tempoAtual;
+                  return (
+                    <>
+                      <div
+                        style={{ ...s.barraFundo, cursor: arrastandoBarra ? 'grabbing' : 'pointer' }}
+                        onMouseDown={(e) => handleBarraMouseDown(e, 'ALL')}
+                      >
+                        <div style={{ ...s.barraProgresso, width: `${percentExibido}%` }} />
+                        <div
+                          style={{
+                            ...s.barraThumb,
+                            left: `${percentExibido}%`,
+                            cursor: arrastandoBarra ? 'grabbing' : 'grab'
+                          }}
+                        />
+                      </div>
+                      <div style={s.tempoLabel}>
+                        {formatarTempo(tempoExibido)} / {formatarTempo(duration)}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>
