@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import * as mm from '@magenta/music';
 import * as s from '../styles/MontarTablaturaStyles';
 import { useMidiPlayer, midiToNoteName } from '../hooks/useMidiPlayer';
 import { supabase } from '../supabaseClient';
 import CustomModal from '../components/CustomModal';
+import TopBar from '../components/TopBar';
+import { useAnimatedNavigate, fadeStyle } from '../hooks/useAnimatedNavigate';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
 import { buscarTonsPorTipo, buscarLayoutPorTomETipo } from '../services/gaitaLayoutService';
@@ -19,7 +21,7 @@ export default function MontarTablatura() {
   const [isLoading, setIsLoading] = useState(false);
 
   const location = useLocation();
-  const navigate = useNavigate();
+  const { expanded, contentVisible, navigateAnimated } = useAnimatedNavigate(true);
 
   const dadosRecebidos = location.state || {};
   const musicaId = dadosRecebidos.musicaId || 1;
@@ -30,43 +32,37 @@ export default function MontarTablatura() {
 
   const [tipoGaita, setTipoGaita] = useState('');
   const [tomGaita, setTomGaita] = useState('');
-  const [configuracaoConfirmada, setConfiguracaoConfirmada] = useState(false);
+  // Só reflete tipo/tom depois de "Aplicar Configurações" (ou "Confirmar Adaptações", se houver ajustes pendentes) — não a cada troca nos campos
+  const [configAplicada, setConfigAplicada] = useState({ tipo: '', tom: '' });
+  const configEmAplicacaoRef = useRef({ tipo: '', tom: '' });
   const [tonsDisponiveis, setTonsDisponiveis] = useState([]);
   const [carregandoTons, setCarregandoTons] = useState(false);
   const tiposDeGaitaOpcoes = ['Diatônica', 'Trêmolo', 'Cromática 10', 'Cromática 12', 'Cromática 14', 'Cromática 16'];
-  const primeiraMudancaTomRef = useRef(false);
+  // Bloco "Configurações da Gaita" recolhido por padrão (e sempre que uma
+  // configuração é aplicada com sucesso), liberando espaço vertical pra
+  // "Partes Ativas". O botão "Editar/Recolher" no cabeçalho alterna livremente,
+  // independente de haver ou não uma configuração já aplicada.
+  const [configColapsada, setConfigColapsada] = useState(true);
 
   const [partesDisponiveis, setPartesDisponiveis] = useState([]);
   const [partesAdicionadas, setPartesAdicionadas] = useState([]);
   const [notasPorParte, setNotasPorParte] = useState({});
   const [dadosOitavas, setDadosOitavas] = useState({});
+  // Modo "tela cheia" do bloco "Partes Ativas", pra acompanhar melhor a
+  // reprodução com todas as partes visíveis de uma vez.
+  const [partesMaximizado, setPartesMaximizado] = useState(false);
 
   // === ESTADOS PARA MULTISELEÇÃO ===
   const [notasSelecionadas, setNotasSelecionadas] = useState([]);
   const [ultimaNotaClicada, setUltimaNotaClicada] = useState(null);
 
-  // === ESTADOS DE FILA PARA TRADUÇÃO SEQUENCIAL ===
-  const [filaTraducao, setFilaTraducao] = useState([]);
   const [isTraduzindo, setIsTraduzindo] = useState(false);
 
-  const [modalAjusteAberto, setModalAjusteAberto] = useState(false);
-  const [notasPendentes, setNotasPendentes] = useState([]);
-  const [comandosDaGaita, setComandosDaGaita] = useState([]);
+  // === AJUSTES DE NOTAS PENDENTES (agrupados em um único modal) ===
+  // Cada item: { parteId, parteNome, offset, detalhes, comandosDisponiveis, mapeamento, novaOitavaIndex }
+  const [ajustesPendentes, setAjustesPendentes] = useState([]);
+  const modalAjusteAberto = ajustesPendentes.length > 0;
   const { usuario } = useAuthUser();
-  const [mapeamentoUsuario, setMapeamentoUsuario] = useState({});
-
-  useEffect(() => {
-    if (!tomGaita) return;
-
-    if (!primeiraMudancaTomRef.current) {
-      primeiraMudancaTomRef.current = true;
-      recarregarTraducoes();
-    }
-  }, [tomGaita]);
-
-  const [parteEmAjuste, setParteEmAjuste] = useState(null);
-  const [offsetEmAjuste, setOffsetEmAjuste] = useState(null);
-  const [novaOitavaPendente, setNovaOitavaPendente] = useState(null);
 
   const [linhasLetra, setLinhasLetra] = useState([]);
   const [mostrarPreview, setMostrarPreview] = useState(false);
@@ -167,7 +163,7 @@ export default function MontarTablatura() {
             console.error("Erro ao salvar a avaliação do MIDI:", ratingError);
           }
         }
-        navigate('/');
+        navigateAnimated('/', { expand: false });
       }
     } catch (err) {
       console.error(err);
@@ -203,6 +199,24 @@ export default function MontarTablatura() {
     });
   });
 
+  // "Continuar" só é liberado com type/tom de gaita aplicados (qualquer um,
+  // não importa qual) E pelo menos uma nota já colocada na tablatura.
+  const configPronta = Boolean(configAplicada.tipo && configAplicada.tom);
+  const temNotaAlocada = notasAlocadasSet.size > 0;
+  const podeContinuar = configPronta && temNotaAlocada;
+
+  const handleContinuarClick = () => {
+    if (!podeContinuar) {
+      showAlert(
+        "Aplique o tipo e o tom da gaita e adicione ao menos uma nota na tablatura antes de continuar.",
+        "Complete a configuração",
+        "warning"
+      );
+      return;
+    }
+    setMostrarPreview(true);
+  };
+
   useEffect(() => {
     if (letra) {
       setLinhasLetra(letra.split('\n').map((texto, index) => ({ id: `linha-${index}`, texto: texto, notas: [] })));
@@ -213,22 +227,11 @@ export default function MontarTablatura() {
         .then(data => {
           setPartesDisponiveis(data.partes);
           setPartesAdicionadas(data.partes);
-          setFilaTraducao([...data.partes]);
         })
         .catch(err => console.error("Erro ao buscar partes:", err))
         .finally(() => setIsLoading(false));
     }
   }, [letra, midiSelecionado, musicaId]);
-
-  useEffect(() => {
-    if (!tipoGaita || !tomGaita) {
-      return;
-    }
-    else if (filaTraducao.length > 0 && !modalAjusteAberto && !isTraduzindo) {
-      const parteAtual = filaTraducao[0];
-      traduzirParteFila(parteAtual);
-    }
-  }, [filaTraducao, modalAjusteAberto, isTraduzindo]);
 
   const atualizarNotasDoCard = (parteId, tablaturaArray) => {
     const notasComId = tablaturaArray.map((notaObj) => ({
@@ -240,135 +243,192 @@ export default function MontarTablatura() {
     setNotasPorParte(prev => ({ ...prev, [parteId]: notasComId }));
   };
 
-  const traduzirParteFila = async (parteEncontrada) => {
+  // Escolhe a melhor oitava (perfeita e mais próxima de 0) dentre as opções testadas pelo backend
+  const escolherMelhorOitava = (data) => {
+    const perfect0 = data.findIndex(p => p.offset === 0 && p.perfeita);
+    if (perfect0 !== -1) return perfect0;
+
+    let perfects = data.map((p, i) => ({ ...p, index: i })).filter(p => p.perfeita);
+    if (perfects.length > 0) {
+      perfects.sort((a, b) => Math.abs(a.offset) - Math.abs(b.offset));
+      return perfects[0].index;
+    }
+
+    // Se nenhuma é perfeita, pega a que tiver menos detalhes faltando
+    let imperfects = data.map((p, i) => ({ ...p, index: i }));
+    imperfects.sort((a, b) => {
+      if (a.detalhes.length !== b.detalhes.length) return a.detalhes.length - b.detalhes.length;
+      return Math.abs(a.offset) - Math.abs(b.offset);
+    });
+    return imperfects[0].index;
+  };
+
+  // Processa TODAS as partes da fila de uma vez e acumula os ajustes pendentes
+  // em um único lote, para exibir um só modal ao final (em vez de um por parte).
+  const processarFilaTraducao = async (partesParaProcessar) => {
     setIsTraduzindo(true);
     setIsLoading(true);
+    const novosAjustes = [];
     try {
-      const resData = await traduzirTablatura({
-        musica_id: musicaId,
-        caminho_completo: midiSelecionado.path,
-        parte_id: parteEncontrada.id,
-        tom_gaita: tomGaita,
-        tipo_gaita: tipoGaita,
-        overrides: null // Na primeira vez manda sem ajustes
-      });
+      for (const parteEncontrada of partesParaProcessar) {
+        try {
+          const resData = await traduzirTablatura({
+            musica_id: musicaId,
+            caminho_completo: midiSelecionado.path,
+            parte_id: parteEncontrada.id,
+            tom_gaita: tomGaita,
+            tipo_gaita: tipoGaita,
+            overrides: null // Na primeira vez manda sem ajustes
+          });
 
-      const data = resData.posicoes; // Array com TODAS as oitavas testadas
+          const data = resData.posicoes; // Array com TODAS as oitavas testadas
+          if (!Array.isArray(data) || data.length === 0) continue;
 
-      if (Array.isArray(data) && data.length > 0) {
-        // Decide qual é a oitava padrão (melhor cenário: perfeita e próxima a 0)
-        let bestIndex = -1;
-        const perfect0 = data.findIndex(p => p.offset === 0 && p.perfeita);
+          const bestIndex = escolherMelhorOitava(data);
 
-        if (perfect0 !== -1) {
-          bestIndex = perfect0;
-        } else {
-          let perfects = data.map((p, i) => ({ ...p, index: i })).filter(p => p.perfeita);
-          if (perfects.length > 0) {
-            perfects.sort((a, b) => Math.abs(a.offset) - Math.abs(b.offset));
-            bestIndex = perfects[0].index;
+          setDadosOitavas(prev => ({
+            ...prev,
+            [parteEncontrada.id]: { posicoes: data, selecionada: bestIndex }
+          }));
+
+          const bestOption = data[bestIndex];
+
+          if (bestOption.perfeita) {
+            atualizarNotasDoCard(parteEncontrada.id, bestOption.tablatura);
           } else {
-            // Se nenhuma é perfeita, pega a que tiver menos detalhes faltando
-            let imperfects = data.map((p, i) => ({ ...p, index: i }));
-            imperfects.sort((a, b) => {
-              if (a.detalhes.length !== b.detalhes.length) return a.detalhes.length - b.detalhes.length;
-              return Math.abs(a.offset) - Math.abs(b.offset);
+            const mapInicial = {};
+            bestOption.detalhes.forEach(item => { mapInicial[item.nota_midi_original] = item.sugestao_comando; });
+            novosAjustes.push({
+              parteId: parteEncontrada.id,
+              parteNome: parteEncontrada.nome,
+              offset: bestOption.offset,
+              detalhes: bestOption.detalhes,
+              comandosDisponiveis: bestOption.comandos_disponiveis,
+              mapeamento: mapInicial,
+              novaOitavaIndex: null
             });
-            bestIndex = imperfects[0].index;
           }
+        } catch (err) {
+          console.error(err);
+          showAlert(`Falha na tradução da parte ${parteEncontrada.nome}: \n${err.message}`, "Erro", "error");
         }
-
-        setDadosOitavas(prev => ({
-          ...prev,
-          [parteEncontrada.id]: { posicoes: data, selecionada: bestIndex }
-        }));
-
-        const bestOption = data[bestIndex];
-
-        if (bestOption.perfeita) {
-          atualizarNotasDoCard(parteEncontrada.id, bestOption.tablatura);
-          setFilaTraducao(prev => prev.slice(1));
-        } else {
-          // Congela a fila, prepara modal para a oitava sugerida
-          setParteEmAjuste(parteEncontrada);
-          setOffsetEmAjuste(bestOption.offset);
-          setNovaOitavaPendente(null);
-          setNotasPendentes(bestOption.detalhes);
-          setComandosDaGaita(bestOption.comandos_disponiveis);
-          const mapInicial = {};
-          bestOption.detalhes.forEach(item => { mapInicial[item.nota_midi_original] = item.sugestao_comando; });
-          setMapeamentoUsuario(mapInicial);
-          setModalAjusteAberto(true);
-        }
-      } else {
-        setFilaTraducao(prev => prev.slice(1));
       }
-    } catch (err) {
-      console.error(err);
-      showAlert(`Falha na tradução da parte ${parteEncontrada.nome}: \n${err.message}`, "Erro", "error");
-      setFilaTraducao(prev => prev.slice(1));
     } finally {
       setIsTraduzindo(false);
       setIsLoading(false);
+      if (novosAjustes.length > 0) {
+        setAjustesPendentes(prev => [...prev, ...novosAjustes]);
+      }
     }
+    return novosAjustes;
   };
 
-  const confirmarAjustes = async () => {
+  const atualizarMapeamentoAjuste = (parteId, notaMidiOriginal, novoComando) => {
+    setAjustesPendentes(prev => prev.map(ajuste =>
+      ajuste.parteId === parteId
+        ? { ...ajuste, mapeamento: { ...ajuste.mapeamento, [notaMidiOriginal]: novoComando } }
+        : ajuste
+    ));
+  };
+
+  // Confirma todos os ajustes pendentes de uma vez (um request por parte, em paralelo)
+  const confirmarTodosAjustes = async () => {
     setIsLoading(true);
+    const parteIdsAplicados = [];
+    const falhas = [];
     try {
-      const resData = await traduzirTablatura({
-        musica_id: musicaId,
-        caminho_completo: midiSelecionado.path,
-        parte_id: parteEmAjuste.id,
-        tom_gaita: tomGaita,
-        tipo_gaita: tipoGaita,
-        // Passamos a oitava desejada escondida no dicionário
-        overrides: { ...mapeamentoUsuario, __target_offset__: String(offsetEmAjuste) }
-      });
-      const data = resData.posicoes;
+      await Promise.all(ajustesPendentes.map(async (ajuste) => {
+        try {
+          const resData = await traduzirTablatura({
+            musica_id: musicaId,
+            caminho_completo: midiSelecionado.path,
+            parte_id: ajuste.parteId,
+            tom_gaita: tomGaita,
+            tipo_gaita: tipoGaita,
+            // Passamos a oitava desejada escondida no dicionário
+            overrides: { ...ajuste.mapeamento, __target_offset__: String(ajuste.offset) }
+          });
+          const data = resData.posicoes;
 
-      // Se deu certo, a API devolveu apenas a opção selecionada com perfeita: true
-      if (Array.isArray(data) && data.length > 0 && data[0].perfeita) {
-        const novaTablatura = data[0].tablatura;
+          // Se deu certo, a API devolveu apenas a opção selecionada com perfeita: true
+          if (Array.isArray(data) && data.length > 0 && data[0].perfeita) {
+            const novaTablatura = data[0].tablatura;
 
-        setDadosOitavas(prev => {
-          const newPosicoes = [...prev[parteEmAjuste.id].posicoes];
-          const updatedIndex = novaOitavaPendente !== null ? novaOitavaPendente : prev[parteEmAjuste.id].selecionada;
-          newPosicoes[updatedIndex] = { ...newPosicoes[updatedIndex], perfeita: true, tablatura: novaTablatura, ajustadaManualmente: true };
-          return {
-            ...prev,
-            [parteEmAjuste.id]: { posicoes: newPosicoes, selecionada: updatedIndex }
-          };
-        });
+            setDadosOitavas(prev => {
+              const posicoesAtuais = prev[ajuste.parteId]?.posicoes || [];
+              const newPosicoes = [...posicoesAtuais];
+              const updatedIndex = ajuste.novaOitavaIndex !== null ? ajuste.novaOitavaIndex : (prev[ajuste.parteId]?.selecionada ?? 0);
+              newPosicoes[updatedIndex] = { ...newPosicoes[updatedIndex], perfeita: true, tablatura: novaTablatura, ajustadaManualmente: true };
+              return {
+                ...prev,
+                [ajuste.parteId]: { posicoes: newPosicoes, selecionada: updatedIndex }
+              };
+            });
 
-        atualizarNotasDoCard(parteEmAjuste.id, novaTablatura);
-
-        setModalAjusteAberto(false);
-        setParteEmAjuste(null);
-        setOffsetEmAjuste(null);
-        setNovaOitavaPendente(null);
-
-        // Remove da fila se estava processando em massa
-        if (filaTraducao.length > 0 && filaTraducao[0].id === parteEmAjuste.id) {
-          setFilaTraducao(prev => prev.slice(1));
+            atualizarNotasDoCard(ajuste.parteId, novaTablatura);
+            parteIdsAplicados.push(ajuste.parteId);
+          } else {
+            falhas.push(ajuste.parteNome);
+          }
+        } catch (e) {
+          console.error(e);
+          falhas.push(ajuste.parteNome);
         }
-      }
-    } catch (e) {
-      showAlert("Erro ao aplicar ajustes: " + e.message, "Erro", "error");
+      }));
     } finally {
       setIsLoading(false);
     }
+
+    // Remove da lista pendente apenas as partes aplicadas com sucesso; falhas continuam no modal
+    setAjustesPendentes(prev => prev.filter(a => !parteIdsAplicados.includes(a.parteId)));
+
+    // Só agora (confirmação final do modal) o indicador de "gaita/tom em uso" é atualizado
+    setConfigAplicada(configEmAplicacaoRef.current);
+    setConfigColapsada(true);
+
+    if (falhas.length > 0) {
+      showAlert(`Não foi possível aplicar os ajustes para: ${falhas.join(', ')}. Tente novamente.`, "Erro", "error");
+    }
   };
 
-  const recarregarTraducoes = () => {
+  // Zera tipo/tom da gaita e limpa as partes ativas, voltando ao estado "Aguardando tradução"
+  const limparConfiguracao = () => {
+    setAjustesPendentes([]);
     setIsTraduzindo(false);
-    setModalAjusteAberto(false);
     setNotasPorParte({});
     setDadosOitavas({});
-    setFilaTraducao([...partesAdicionadas]);
+    setTipoGaita('');
+    setTomGaita('');
+    setConfigAplicada({ tipo: '', tom: '' });
+    setConfigColapsada(false);
+  };
+
+  // Fecha o modal de ajustes sem confirmar nada — mantém tipo/tom e o que já foi traduzido,
+  // já que "Limpar Configuração" é o botão dedicado para zerar os campos
+  const fecharModalAjustes = () => {
+    setAjustesPendentes([]);
+    setIsTraduzindo(false);
+  };
+
+  // Só é disparado pelo botão "Aplicar Configurações" — selecionar os campos sozinho não traduz nada
+  const aplicarConfiguracoes = async () => {
     if (!tipoGaita || !tomGaita) {
       showAlert("Por favor, selecione o Tipo e o Tom da gaita.", "Aviso", "warning");
       return;
+    }
+    if (isTraduzindo) return;
+
+    configEmAplicacaoRef.current = { tipo: tipoGaita, tom: tomGaita };
+    setAjustesPendentes([]);
+    setNotasPorParte({});
+    setDadosOitavas({});
+
+    const novosAjustes = await processarFilaTraducao([...partesAdicionadas]);
+    // Se nenhuma parte precisou de ajuste manual, já podemos atualizar o indicador aqui.
+    // Caso contrário, ele só atualiza quando o usuário confirmar o modal de ajustes.
+    if (!novosAjustes || novosAjustes.length === 0) {
+      setConfigAplicada(configEmAplicacaoRef.current);
+      setConfigColapsada(true);
     }
   };
 
@@ -382,17 +442,23 @@ export default function MontarTablatura() {
       }));
       atualizarNotasDoCard(parteId, opcao.tablatura);
     } else {
-      // Abre o modal para essa oitava sem tablatura
-      setParteEmAjuste(partesAdicionadas.find(p => p.id === parteId));
-      setOffsetEmAjuste(opcao.offset);
-      setNovaOitavaPendente(novaOitavaIndex);
-
-      setNotasPendentes(opcao.detalhes);
-      setComandosDaGaita(opcao.comandos_disponiveis);
+      // Adiciona (ou substitui) o ajuste pendente dessa parte no modal agrupado
+      const parte = partesAdicionadas.find(p => p.id === parteId);
       const mapInicial = {};
       opcao.detalhes.forEach(item => { mapInicial[item.nota_midi_original] = item.sugestao_comando; });
-      setMapeamentoUsuario(mapInicial);
-      setModalAjusteAberto(true);
+
+      setAjustesPendentes(prev => ([
+        ...prev.filter(a => a.parteId !== parteId),
+        {
+          parteId,
+          parteNome: parte?.nome,
+          offset: opcao.offset,
+          detalhes: opcao.detalhes,
+          comandosDisponiveis: opcao.comandos_disponiveis,
+          mapeamento: mapInicial,
+          novaOitavaIndex
+        }
+      ]));
       // Obs: Não atualizamos 'selecionada' no estado, assim o <select> só muda se o modal for confirmado.
     }
   };
@@ -557,6 +623,171 @@ export default function MontarTablatura() {
     carregarTonsDoTipo();
   }, [tipoGaita]);
 
+  // Lista de cards de "Partes Ativas" — extraída em função porque é
+  // renderizada tanto na coluna esquerda normal quanto (idêntica, mesmo
+  // estado/handlers) dentro do overlay de tela cheia (partesMaximizado).
+  const renderListaPartes = () => partesAdicionadas.map(parte => {
+    const oitavaInfo = dadosOitavas[parte.id];
+    const cardExpandido = cardsExpandidos[parte.id] === true;
+    const cardEstaTocando = parteEstaTocando(parte.id);
+
+    return (
+      <div key={parte.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+        <div onClick={() => alternarExpansaoParte(parte.id)}
+          style={{ ...s.cardParteStyle, ...(cardEstaTocando ? s.cardParteTocandoStyle : {}) }}>
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={s.cardParteNome}>
+                {cardExpandido ? '▼' : '▶'} {parte.nome}
+              </span>
+
+              {oitavaInfo && oitavaInfo.posicoes.length > 1 && (
+                <select
+                  value={oitavaInfo.selecionada}
+                  onClick={e => e.stopPropagation()}
+                  onChange={e => handleMudancaOitava(parte.id, parseInt(e.target.value))}
+                  style={s.selectOitavaStyle}
+                >
+                  {oitavaInfo.posicoes.map((p, idx) => {
+                    // AQUI: A estrela só aparece se a oitava for nativamente perfeita e não tiver o ajuste manual
+                    const isNativa = p.perfeita && !p.ajustadaManualmente;
+
+                    const labelOitava = p.offset === 0 ? 'Oitava Original'
+                      : p.offset > 0 ? `+${p.offset / 12} Oitava` : `${p.offset / 12} Oitava`;
+
+                    return (
+                      <option key={idx} value={idx}>
+                        {isNativa ? '⭐ ' : ''}{labelOitava}
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
+            </div>
+
+            <div style={s.volumeContainerStyle} onClick={e => e.stopPropagation()}>
+              <span style={s.volumeIconStyle} title="Volume da parte">
+                {iconeVolume(volumes[parte.id])}
+              </span>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                className="volume-slider"
+                value={volumes[parte.id] ?? 1}
+                onChange={e => {
+                  const novoVolume = parseFloat(e.target.value);
+                  alterarVolume(parte.id, novoVolume);
+                }}
+                style={{
+                  ...s.volumeSliderStyle,
+                  '--vol-pct': formatarPercentualVolume(volumes[parte.id]),
+                  '--vol-fill-color': soloParteId === parte.id ? 'var(--color-warning-strong)' : 'var(--color-primary)'
+                }}
+                aria-label={`Volume da parte ${parte.nome}`}
+              />
+              <span style={s.volumePercentStyle}>{formatarPercentualVolume(volumes[parte.id])}</span>
+              <button
+                type="button"
+                style={{ ...s.btnSoloStyle, ...(soloParteId === parte.id ? s.btnSoloAtivoStyle : {}) }}
+                onClick={() => alternarSolo(parte.id, partesAdicionadas.map(p => p.id))}
+                title={soloParteId === parte.id ? 'Desativar solo (restaurar volumes)' : 'Ouvir somente esta parte (solo)'}
+              >
+                🎧
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {cardExpandido && (
+          <div style={s.notasCardInternoContainer}>
+            {!notasPorParte[parte.id] ? (
+              <span style={{ color: 'var(--color-text-slate-3)', fontSize: '12px', fontStyle: 'italic' }}>Aguardando tradução...</span>
+            ) : (
+              notasPorParte[parte.id].map((nota, index) => {
+                const tempoSeguro = (typeof tempoAtual === 'number' && !isNaN(tempoAtual)) ? tempoAtual : 0;
+                const estaTocando = notaEstaTocando(nota, tempoSeguro);
+                const estaAlocada = notasAlocadasSet.has(nota.id);
+                const estaSelecionada = notasSelecionadas.includes(nota.id);
+
+                let estiloAplicado = { ...s.cardNota };
+
+                if (estaSelecionada && !estaAlocada) {
+                  estiloAplicado = { ...estiloAplicado, ...s.cardNotaSelecionadaStyle };
+                }
+                if (estaAlocada) {
+                  estiloAplicado = { ...estiloAplicado, ...s.cardNotaAlocadaTransparente };
+                }
+                if (estaTocando) {
+                  estiloAplicado = {
+                    ...estiloAplicado,
+                    ...(estaAlocada ? s.cardNotaTocandoAlocadaStyle : s.cardNotaTocandoStyle)
+                  };
+                }
+
+                return (
+                  <div
+                    key={nota.id}
+                    draggable={!estaAlocada}
+                    onClick={(e) => handleNotaClick(e, parte.id, nota, index)}
+                    onDragStart={(e) => {
+                      if (!estaAlocada) handleDragStart(e, nota);
+                    }}
+                    style={estiloAplicado}
+                  >
+                    {nota.valor}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
+    );
+  });
+
+  // Bloco de barra de progresso + velocidade + tempo — extraído em função
+  // porque é clonado no cabeçalho da coluna direita e (só quando maximizado)
+  // dentro do overlay de tela cheia de "Partes Ativas", pra acompanhar a
+  // reprodução sem precisar restaurar o tamanho padrão.
+  const renderBarraProgresso = () => {
+    const percentExibido = arrastandoBarra ? percentArrasto : (playingId === 'ALL' ? progress : 0);
+    const tempoExibido = arrastandoBarra ? (percentArrasto / 100) * duration : (playingId === 'ALL' ? tempoAtual : 0);
+    return (
+      <>
+        <div
+          style={{ ...s.barraFundo, cursor: arrastandoBarra ? 'grabbing' : 'pointer' }}
+          onMouseDown={(e) => handleBarraMouseDown(e, 'ALL')}
+        >
+          <div style={{ ...s.barraProgresso, width: `${percentExibido}%` }} />
+          <div
+            style={{
+              ...s.barraThumb,
+              left: `${percentExibido}%`,
+              cursor: arrastandoBarra ? 'grabbing' : 'grab'
+            }}
+          />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
+          <select
+            style={s.selectVelocidadeCompacto}
+            onChange={(e) => changeSpeed(parseFloat(e.target.value))}
+            value={playbackSpeed}
+            disabled={!isPlaying}
+          >
+            <option value={1}>1x</option>
+            <option value={0.5}>0.5x</option>
+            <option value={0.25}>0.25x</option>
+          </select>
+          <div style={{ ...s.tempoLabel, marginTop: 0 }}>
+            {formatarTempo(tempoExibido)} / {formatarTempo(duration)}
+          </div>
+        </div>
+      </>
+    );
+  };
+
   // ================= RENDERIZAÇÃO =================
   if (mostrarPreview) {
     return (
@@ -580,7 +811,8 @@ export default function MontarTablatura() {
           onConfirm={modalConfig.onConfirm}
           onClose={closeModal}
         />
-        <div style={{ ...s.mainCard, maxWidth: '800px', textAlign: 'center' }}>
+        <TopBar expanded={expanded} navigateAnimated={navigateAnimated} />
+        <div style={{ ...s.mainCard, maxWidth: '800px', textAlign: 'center', ...fadeStyle(contentVisible) }}>
           <h2 style={{ color: 'var(--color-primary)', marginBottom: 5 }}>{nome}</h2>
           <p style={{ color: 'var(--color-text-muted)', marginBottom: 30 }}>{autor}</p>
 
@@ -666,219 +898,143 @@ export default function MontarTablatura() {
         onConfirm={modalConfig.onConfirm}
         onClose={closeModal}
       />
-      <div style={s.contentWrapper}>
-        {/* COLUNA ESQUERDA */}
-        <div style={{ ...s.columnBox, flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-            <h3 style={{ color: 'var(--color-primary)', fontSize: '18px', fontWeight: 'bold', margin: 0 }}>
-              Configurações da Gaita
-            </h3>
-            <button onClick={recarregarTraducoes} style={s.btnRecarregar} title="Recarregar e Traduzir Novamente">↻</button>
-            <p style={{ fontSize: '50%', color: 'var(--color-text-muted)' }}>Carregar comandos de gaita</p>
+      <TopBar expanded={expanded} navigateAnimated={navigateAnimated} />
+      <div style={{ ...s.contentWrapper, ...fadeStyle(contentVisible) }}>
+        {/* COLUNA ESQUERDA (fixa, com Partes Ativas rolando internamente) */}
+        <div style={{
+          display: 'flex', flexDirection: 'column', gap: '20px', flex: 1,
+          position: 'sticky', top: '110px', height: 'calc(100vh - 140px)'
+        }}>
+
+          {/* BLOCO: Configurações da Gaita (fixo, não rola) — recolhe com
+              animação assim que uma configuração é aplicada, liberando
+              espaço pra "Partes Ativas"; "Editar" reabre pra trocar de novo. */}
+          <div style={{ flexShrink: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0 0 14px 20px', paddingRight: '6px' }}>
+              <h3 style={{ ...s.tituloSecaoConfig, margin: 0 }}>Configurações da Gaita</h3>
+              {/* Botão sempre visível (não só quando recolhido): funciona como
+                  toggle — expande pra trocar tipo/tom, recolhe de novo ao
+                  clicar de novo, sem precisar aplicar uma configuração. */}
+              <button type="button" onClick={() => setConfigColapsada(prev => !prev)} style={s.btnExpandirConfig}>
+                {configColapsada ? 'Editar ▾' : 'Recolher ▴'}
+              </button>
+            </div>
+
+            <div style={{ ...s.columnBox, padding: configColapsada ? '14px 22px' : '22px' }}>
+              {configColapsada && (
+                <span style={{ ...s.infoConfigSelecionada, ...(configAplicada.tipo && configAplicada.tom ? s.infoConfigAplicada : s.infoConfigPendente) }}>
+                  {configAplicada.tipo && configAplicada.tom
+                    ? `${configAplicada.tipo} em ${configAplicada.tom}`
+                    : 'Nenhuma definição aplicada'}
+                </span>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateRows: configColapsada ? '0fr' : '1fr', transition: 'grid-template-rows 300ms ease' }}>
+                <div style={{ overflow: 'hidden' }}>
+                  <div style={{ ...s.linhaCamposGaita, marginTop: configColapsada ? '14px' : 0 }}>
+                    <div style={s.campoTipoGaitaWrap}>
+                      <label style={s.labelStyle}>Tipo da Gaita:</label>
+                      <select
+                        style={s.inputTipoGaitaCompacto}
+                        value={tipoGaita}
+                        onChange={(e) => setTipoGaita(e.target.value)}
+                      >
+                        <option value="">Selecione o tipo</option>
+                        {tiposDeGaitaOpcoes.map((tipo) => (
+                          <option key={tipo} value={tipo}>{tipo}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={s.campoTomGaitaWrap}>
+                      <label style={s.labelStyle}>Tom:</label>
+                      <select
+                        style={s.inputTomGaitaCompacto}
+                        value={tomGaita}
+                        onChange={(e) => setTomGaita(e.target.value)}
+                        disabled={carregandoTons || tonsDisponiveis.length === 0}
+                      >
+                        <option value="">-</option>
+                        {tonsDisponiveis.map((tom) => (
+                          <option key={tom} value={tom}>
+                            {tom}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={s.linhaBotoesConfig}>
+                    <button type="button" onClick={limparConfiguracao} style={s.btnLimparConfig}>
+                      Limpar Configuração
+                    </button>
+                    <button
+                      type="button"
+                      onClick={aplicarConfiguracoes}
+                      style={{ ...s.btnAplicarConfig, ...(isTraduzindo ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }}
+                      disabled={isTraduzindo}
+                    >
+                      {isTraduzindo ? 'Aplicando...' : 'Aplicar Configurações'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '25px' }}>
-            {/* CAMPO 1: TIPO DA GAITA (ACIMA) */}
-            <div>
-              <label style={s.labelStyle}>Tipo da Gaita:</label>
-              <select style={s.inputStyle}
-                value={tipoGaita}
-                onChange={(e) => {
-                  setTipoGaita(e.target.value);
-                }}
-              >
-                <option value="">Selecione o tipo de gaita</option>
-                {tiposDeGaitaOpcoes.map((tipo) => (
-                  <option key={tipo} value={tipo}>{tipo}</option>
-                ))}
-              </select>
-            </div>
+          {/* BLOCO: Partes Ativas (separado das Configurações, rola internamente) */}
+          {partesAdicionadas.length > 0 && (
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <h3 style={s.tituloSecaoConfig}>Partes Ativas</h3>
 
-            {/* CAMPO 2: TOM DA GAITA (ABAIXO, DEPENDENTE DO TIPO) */}
-            <div>
-              <label style={s.labelStyle}>Tom da Gaita:</label>
-              <select
-                style={s.inputStyle}
-                value={tomGaita}
-                onChange={(e) => {
-                  setTomGaita(e.target.value);
-                }}
-                disabled={carregandoTons || tonsDisponiveis.length === 0}
-              >
-                <option value="">Escolha o tom da gaita</option>
-
-                {tonsDisponiveis.map((tom) => (
-                  <option key={tom} value={tom}>
-                    {tom}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {partesAdicionadas.length > 0 && (
-              <div style={s.containerCardsMidi}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <span style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--color-text-slate-1)' }}>Partes Ativas:</span>
-                  <button
-                    type="button"
-                    style={s.btnResetVolumesStyle}
-                    onClick={() => resetarVolumes(partesAdicionadas.map(p => p.id))}
-                    title="Restaura o volume de todas as partes para o máximo"
-                  >
-                    ↺ Resetar Volumes
-                  </button>
+              <div style={{ ...s.columnBox, padding: '22px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '12px', flexShrink: 0, gap: '10px' }}>
+                  <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      style={s.btnResetVolumesStyle}
+                      onClick={() => resetarVolumes(partesAdicionadas.map(p => p.id))}
+                      title="Restaura o volume de todas as partes para o máximo"
+                    >
+                      ↺ Resetar Volumes
+                    </button>
+                    <button
+                      type="button"
+                      style={s.btnMaximizarStyle}
+                      onClick={() => setPartesMaximizado(true)}
+                      title="Maximizar Partes Ativas"
+                      aria-label="Maximizar Partes Ativas"
+                    >
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="15 3 21 3 21 9" />
+                        <polyline points="9 21 3 21 3 15" />
+                        <line x1="21" y1="3" x2="14" y2="10" />
+                        <line x1="3" y1="21" x2="10" y2="14" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
 
-                {partesAdicionadas.map(parte => {
-                  const oitavaInfo = dadosOitavas[parte.id];
-                  const cardExpandido = cardsExpandidos[parte.id] === true;
-                  const cardEstaTocando = parteEstaTocando(parte.id);
-
-                  return (
-                    <div key={parte.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-                      <div onClick={() => alternarExpansaoParte(parte.id)}
-                        style={{ ...s.cardParteStyle, ...(cardEstaTocando ? s.cardParteTocandoStyle : {}) }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <span style={s.cardParteNome}>
-                              {cardExpandido ? '▼' : '▶'} {parte.nome}
-                            </span>
-
-                            {oitavaInfo && oitavaInfo.posicoes.length > 1 && (
-                              <select
-                                value={oitavaInfo.selecionada}
-                                onClick={e => e.stopPropagation()}
-                                onChange={e => handleMudancaOitava(parte.id, parseInt(e.target.value))}
-                                style={s.selectOitavaStyle}
-                              >
-                                {oitavaInfo.posicoes.map((p, idx) => {
-                                  // AQUI: A estrela só aparece se a oitava for nativamente perfeita e não tiver o ajuste manual
-                                  const isNativa = p.perfeita && !p.ajustadaManualmente;
-
-                                  const labelOitava = p.offset === 0 ? 'Oitava Original'
-                                    : p.offset > 0 ? `+${p.offset / 12} Oitava` : `${p.offset / 12} Oitava`;
-
-                                  return (
-                                    <option key={idx} value={idx}>
-                                      {isNativa ? '⭐ ' : ''}{labelOitava}
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                            )}
-                          </div>
-
-                          <div style={s.volumeContainerStyle} onClick={e => e.stopPropagation()}>
-                            <span style={s.volumeIconStyle} title="Volume da parte">
-                              {iconeVolume(volumes[parte.id])}
-                            </span>
-                            <input
-                              type="range"
-                              min="0"
-                              max="1"
-                              step="0.01"
-                              className="volume-slider"
-                              value={volumes[parte.id] ?? 1}
-                              onChange={e => {
-                                const novoVolume = parseFloat(e.target.value);
-                                alterarVolume(parte.id, novoVolume);
-                              }}
-                              style={{
-                                ...s.volumeSliderStyle,
-                                '--vol-pct': formatarPercentualVolume(volumes[parte.id]),
-                                '--vol-fill-color': soloParteId === parte.id ? 'var(--color-warning-strong)' : 'var(--color-primary)'
-                              }}
-                              aria-label={`Volume da parte ${parte.nome}`}
-                            />
-                            <span style={s.volumePercentStyle}>{formatarPercentualVolume(volumes[parte.id])}</span>
-                            <button
-                              type="button"
-                              style={{ ...s.btnSoloStyle, ...(soloParteId === parte.id ? s.btnSoloAtivoStyle : {}) }}
-                              onClick={() => alternarSolo(parte.id, partesAdicionadas.map(p => p.id))}
-                              title={soloParteId === parte.id ? 'Desativar solo (restaurar volumes)' : 'Ouvir somente esta parte (solo)'}
-                            >
-                              🎧
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      {cardExpandido && (
-                        <div style={s.notasCardInternoContainer}>
-                          {!notasPorParte[parte.id] ? (
-                            <span style={{ color: 'var(--color-text-slate-3)', fontSize: '12px', fontStyle: 'italic' }}>Aguardando tradução...</span>
-                          ) : (
-                            notasPorParte[parte.id].map((nota, index) => {
-                              const tempoSeguro = (typeof tempoAtual === 'number' && !isNaN(tempoAtual)) ? tempoAtual : 0;
-                              const estaTocando = notaEstaTocando(nota, tempoSeguro);
-                              const estaAlocada = notasAlocadasSet.has(nota.id);
-                              const estaSelecionada = notasSelecionadas.includes(nota.id);
-
-                              let estiloAplicado = { ...s.cardNota };
-
-                              if (estaSelecionada && !estaAlocada) {
-                                estiloAplicado = { ...estiloAplicado, ...s.cardNotaSelecionadaStyle };
-                              }
-                              if (estaAlocada) {
-                                estiloAplicado = { ...estiloAplicado, ...s.cardNotaAlocadaTransparente };
-                              }
-                              if (estaTocando) {
-                                estiloAplicado = {
-                                  ...estiloAplicado,
-                                  ...(estaAlocada ? s.cardNotaTocandoAlocadaStyle : s.cardNotaTocandoStyle)
-                                };
-                              }
-
-                              return (
-                                <div
-                                  key={nota.id}
-                                  draggable={!estaAlocada}
-                                  onClick={(e) => handleNotaClick(e, parte.id, nota, index)}
-                                  onDragStart={(e) => {
-                                    if (!estaAlocada) handleDragStart(e, nota);
-                                  }}
-                                  style={estiloAplicado}
-                                >
-                                  {nota.valor}
-                                </div>
-                              );
-                            })
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '4px 20px 4px 4px', margin: '-4px -20px -4px -4px' }}>
+                  {renderListaPartes()}
+                </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* COLUNA DIREITA (Sticky com Scroll Interno) */}
         <div style={{
-          ...s.columnBox, flex: 1.2, position: 'sticky', top: '30px',
-          height: 'calc(100vh - 60px)', display: 'flex', flexDirection: 'column', paddingBottom: '25px'
+          ...s.columnBox, flex: 1.2, position: 'sticky', top: '110px',
+          height: 'calc(100vh - 140px)', display: 'flex', flexDirection: 'column', paddingBottom: '25px'
         }}>
           <div style={{
             marginBottom: '20px', borderBottom: 'var(--border-width-base) solid var(--color-border-alt)', paddingBottom: '15px',
             flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px'
           }}>
-            <div style={{ flex: 1 }}>
-              <h2 style={{ color: 'var(--color-text-main)', margin: 0, fontSize: '24px' }}>{nome}</h2>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h2 style={{ color: 'var(--color-text-main)', margin: 0, fontSize: '28px', fontWeight: 'bold' }}>{nome}</h2>
               <span style={{ color: 'var(--color-text-muted)' }}>{autor}</span>
-            </div>
-
-            <div className="controles-player">
-              <select
-                style={s.inputStyle}
-                onChange={(e) => changeSpeed(parseFloat(e.target.value))}
-                value={playbackSpeed}
-                disabled={!isPlaying}
-              >
-                <option value={1}>1x</option>
-                <option value={0.5}>0.5x</option>
-                <option value={0.25}>0.25x</option>
-              </select>
             </div>
 
             {partesAdicionadas.length > 0 && (
@@ -893,30 +1049,7 @@ export default function MontarTablatura() {
                 >
                   {playingId === 'ALL' && isPlaying ? '⏸ Pausar Música' : '▶ Tocar Música'}
                 </button>
-                {playingId === 'ALL' && (() => {
-                  const percentExibido = arrastandoBarra ? percentArrasto : progress;
-                  const tempoExibido = arrastandoBarra ? (percentArrasto / 100) * duration : tempoAtual;
-                  return (
-                    <>
-                      <div
-                        style={{ ...s.barraFundo, cursor: arrastandoBarra ? 'grabbing' : 'pointer' }}
-                        onMouseDown={(e) => handleBarraMouseDown(e, 'ALL')}
-                      >
-                        <div style={{ ...s.barraProgresso, width: `${percentExibido}%` }} />
-                        <div
-                          style={{
-                            ...s.barraThumb,
-                            left: `${percentExibido}%`,
-                            cursor: arrastandoBarra ? 'grabbing' : 'grab'
-                          }}
-                        />
-                      </div>
-                      <div style={s.tempoLabel}>
-                        {formatarTempo(tempoExibido)} / {formatarTempo(duration)}
-                      </div>
-                    </>
-                  );
-                })()}
+                {renderBarraProgresso()}
               </div>
             )}
           </div>
@@ -941,49 +1074,129 @@ export default function MontarTablatura() {
           </div>
 
           <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end', paddingTop: '15px', backgroundColor: 'var(--color-bg-card)' }}>
-            <button style={{ ...s.btnContinuar, position: 'relative', bottom: 'auto', right: 'auto' }} onClick={() => setMostrarPreview(true)}>
+            <button
+              style={{
+                ...s.btnContinuar, position: 'relative', bottom: 'auto', right: 'auto',
+                ...(podeContinuar ? {} : s.btnContinuarDesabilitado)
+              }}
+              onClick={handleContinuarClick}
+              title={podeContinuar ? undefined : 'Aplique o tipo/tom da gaita e adicione ao menos uma nota antes de continuar'}
+            >
               Continuar ➔
             </button>
           </div>
         </div>
       </div>
 
+      {/* Modo tela cheia de "Partes Ativas": fundo na mesma cor do card das
+          partes, clone da barra de progresso (com velocidade/tempo) no topo
+          pra acompanhar a reprodução, e todas as partes em lista corrida. */}
+      {partesMaximizado && (
+        <div style={s.overlayPartesMaximizado}>
+          <div style={s.overlayPartesHeader}>
+            <h2 style={s.overlayPartesTitulo}>Partes Ativas</h2>
+            <button
+              type="button"
+              style={s.btnRestaurarStyle}
+              onClick={() => setPartesMaximizado(false)}
+              title="Voltar ao tamanho padrão"
+              aria-label="Voltar ao tamanho padrão"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 14 10 14 10 20" />
+                <polyline points="20 10 14 10 14 4" />
+                <line x1="14" y1="10" x2="21" y2="3" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+              Restaurar
+            </button>
+          </div>
+
+          {partesAdicionadas.length > 0 && midiSelecionado && (
+            <div style={s.overlayBarraWrap}>
+              <button
+                style={{ ...s.btnPlayAll, padding: '10px 16px', fontSize: '13px', borderRadius: '8px', marginBottom: '10px' }}
+                onClick={() => togglePlayAll(partesAdicionadas.map(p => p.id), midiSelecionado?.path, volumes)}
+              >
+                {playingId === 'ALL' && isPlaying ? '⏸ Pausar Música' : '▶ Tocar Música'}
+              </button>
+              {renderBarraProgresso()}
+            </div>
+          )}
+
+          <div style={s.overlayListaWrap}>
+            {renderListaPartes()}
+          </div>
+        </div>
+      )}
+
       {modalAjusteAberto && (
         <div style={s.modalOverlay}>
-          <div style={s.modalContent}>
-            <h3 style={{ marginTop: 0, color: 'var(--color-text-slate-4)' }}>Ajuste de Notas</h3>
-            <p style={{ color: 'var(--color-text-slate-5)', fontSize: '14px', lineHeight: '1.5' }}>
-              A parte <strong>{parteEmAjuste?.nome}</strong> possui notas que não existem fisicamente na {tipoGaita} em {tomGaita}.
-              Escolha as adaptações abaixo para contornar isso:
+          <div style={s.modalContentAjuste}>
+            <div style={s.modalAjusteHeader}>
+              <h3 style={s.modalAjusteTitulo}>Ajuste de Notas</h3>
+              <span style={s.modalAjusteBadge}>
+                {ajustesPendentes.length} {ajustesPendentes.length === 1 ? 'parte precisa' : 'partes precisam'} de ajuste
+              </span>
+            </div>
+            <p style={s.modalAjusteDescricao}>
+              As partes abaixo possuem notas que não existem fisicamente na {tipoGaita} em {tomGaita}.
+              Escolha as adaptações necessárias para cada uma e confirme tudo de uma vez.
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', margin: '20px 0', maxHeight: '400px', overflowY: 'auto' }}>
-              {notasPendentes.map((nota, index) => (
-                <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--color-bg-card-alt)', padding: '12px', borderRadius: '8px', border: 'var(--border-width-base) solid var(--color-border-alt)' }}>
-                  <div>
-                    <span style={{ fontWeight: 'bold', display: 'block', fontSize: '15px', color: 'var(--color-text-slate-6)' }}>
-                      Nota Original: {midiToNoteName(nota.nota_midi_original)}
-                    </span>
-                    <span style={{ fontSize: '12px', color: 'var(--color-text-slate-2)' }}>
-                      Comando sugerido: <strong>{nota.sugestao_comando}</strong>
+            <div style={s.modalAjusteListaPartes}>
+              {ajustesPendentes.map((ajuste) => (
+                <div key={ajuste.parteId} style={s.parteAjusteSecao}>
+                  <div style={s.parteAjusteSecaoHeader}>
+                    <span style={s.parteAjusteSecaoTitulo}>{ajuste.parteNome}</span>
+                    <span style={s.parteAjusteSecaoContagem}>
+                      {ajuste.detalhes.length} {ajuste.detalhes.length === 1 ? 'nota' : 'notas'}
                     </span>
                   </div>
 
-                  <select
-                    value={mapeamentoUsuario[nota.nota_midi_original]}
-                    onChange={(e) => setMapeamentoUsuario({ ...mapeamentoUsuario, [nota.nota_midi_original]: e.target.value })}
-                    style={{ padding: '8px', borderRadius: '6px', border: 'var(--border-width-base) solid var(--color-border-soft)', outline: 'none', cursor: 'pointer', fontWeight: 'bold' }}
-                  >
-                    {comandosDaGaita.map(cmd => (
-                      <option key={cmd} value={cmd}>{cmd}</option>
+                  <div style={s.parteAjusteNotasContainer}>
+                    {ajuste.detalhes.map((nota, index) => (
+                      <div key={index} style={s.notaAjusteLinha}>
+                        <div>
+                          <span style={s.notaAjusteOriginal}>
+                            Nota Original: {midiToNoteName(nota.nota_midi_original)}
+                          </span>
+                          <span style={s.notaAjusteSugestao}>
+                            Comando sugerido: <strong>{nota.sugestao_comando}</strong>
+                          </span>
+                        </div>
+
+                        <select
+                          value={ajuste.mapeamento[nota.nota_midi_original]}
+                          onChange={(e) => atualizarMapeamentoAjuste(ajuste.parteId, nota.nota_midi_original, e.target.value)}
+                          style={s.selectAjusteNota}
+                        >
+                          {ajuste.comandosDisponiveis.map(cmd => (
+                            <option key={cmd} value={cmd}>{cmd}</option>
+                          ))}
+                        </select>
+                      </div>
                     ))}
-                  </select>
+                  </div>
                 </div>
               ))}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button onClick={confirmarAjustes} style={s.btnConfirmarModal}>Confirmar Adaptações</button>
+            <div style={s.modalAjusteFooter}>
+              <button
+                onClick={fecharModalAjustes}
+                style={{ ...s.btnCancelarModal, ...(isLoading ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }}
+                disabled={isLoading}
+              >
+                ← Voltar
+              </button>
+              <button
+                onClick={confirmarTodosAjustes}
+                style={{ ...s.btnConfirmarModal, ...(isLoading ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }}
+                disabled={isLoading}
+              >
+                {isLoading ? 'Aplicando...' : 'Confirmar Adaptações'}
+              </button>
             </div>
           </div>
         </div>

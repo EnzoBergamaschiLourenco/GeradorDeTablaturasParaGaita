@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import CustomModal from '../components/CustomModal';
+import TopBar, { TOPBAR_CLEARANCE } from '../components/TopBar';
+import { useAnimatedNavigate, fadeStyle } from '../hooks/useAnimatedNavigate';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
 import {
@@ -16,7 +17,7 @@ import {
 export default function CriarTabs() {
   const { modalConfig, showAlert, closeModal } = useModal();
 
-  const navigate = useNavigate();
+  const { expanded, contentVisible, navigateAnimated } = useAnimatedNavigate(true);
   const [loading, setLoading] = useState(false);
   const { usuario } = useAuthUser();
 
@@ -183,7 +184,7 @@ export default function CriarTabs() {
   const handleMontarTablatura = async () => {
     if (!usuario) {
       showAlert("Você precisa estar logado para montar tablaturas!", "Aviso", "info");
-      navigate('/login');
+      navigateAnimated('/login', { expand: true });
       return;
     }
 
@@ -216,7 +217,8 @@ export default function CriarTabs() {
         currentMusicaId = novaMusica.id;
       }
 
-      navigate('/MontarTablatura', {
+      navigateAnimated('/MontarTablatura', {
+        expand: true,
         state: {
           musicaId: currentMusicaId,
           nome: musica,
@@ -236,8 +238,9 @@ export default function CriarTabs() {
 
   return (
     <div style={pageStyle}>
-      <div style={contentWrapper}>
-        
+      <TopBar expanded={expanded} navigateAnimated={navigateAnimated} />
+      <div style={{ ...contentWrapper, ...fadeStyle(contentVisible) }}>
+
         <CustomModal
           isOpen={modalConfig.isOpen}
           title={modalConfig.title}
@@ -308,7 +311,7 @@ export default function CriarTabs() {
           </button>
 
           {!usuario && <p style={{ color: 'var(--color-danger)', fontSize: 13, marginTop: 12, textAlign: 'center', fontWeight: 'bold' }}>* Login necessário para salvar</p>}
-          <p style={linkStyle} onClick={() => navigate('/')}>Cancelar e Voltar</p>
+          <p style={linkStyle} onClick={() => navigateAnimated('/', { expand: false })}>Cancelar e Voltar</p>
         </div>
 
         {/* COLUNA DIREITA */}
@@ -407,8 +410,9 @@ export default function CriarTabs() {
 }
 
 /* ===== ESTILOS ===== */
-const pageStyle = { position: 'absolute', top: 0, left: 0, width: '100vw', minHeight: '100vh', backgroundColor: 'var(--color-bg-page)', display: 'flex', justifyContent: 'center', alignItems: 'center', fontFamily: 'Arial, sans-serif', padding: '40px 20px', boxSizing: 'border-box', overflowX: 'hidden' };
-const contentWrapper = { display: 'flex', gap: '30px', width: '100%', maxWidth: '1100px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'flex-start' };
+const pageStyle = { position: 'absolute', top: 0, left: 0, width: '100vw', minHeight: '100vh', backgroundColor: 'var(--color-bg-page)', display: 'flex', justifyContent: 'center', alignItems: 'center', fontFamily: 'Arial, sans-serif', padding: '40px 20px', paddingTop: `${TOPBAR_CLEARANCE}px`, boxSizing: 'border-box', overflowX: 'hidden' };
+
+const contentWrapper ={ display: 'flex', gap: '30px', width: '100%', maxWidth: '1100px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'flex-start' };
 const leftColumn = { flex: 1, minWidth: '320px', maxWidth: '500px', backgroundColor: 'var(--color-bg-card)', padding: '40px', borderRadius: '24px', boxShadow: '0 15px 40px var(--shadow-card)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' };
 const rightColumn = { flex: 1, minWidth: '320px', maxWidth: '500px', backgroundColor: 'var(--color-bg-card)', padding: '40px', borderRadius: '24px', boxShadow: '0 15px 40px var(--shadow-card)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' };
 const labelStyle = { color: 'var(--color-text-muted)', fontSize: 13, fontWeight: 'bold', marginBottom: 6, display: 'block', marginLeft: 2, textAlign: 'left' };

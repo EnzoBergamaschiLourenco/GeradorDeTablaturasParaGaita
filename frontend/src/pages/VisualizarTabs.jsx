@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import CustomModal from '../components/CustomModal';
+import TopBar, { TOPBAR_CLEARANCE } from '../components/TopBar';
+import { useAnimatedNavigate, fadeStyle } from '../hooks/useAnimatedNavigate';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
 import {
@@ -15,7 +17,7 @@ import {
 export default function VisualizarTabs() {
   const { modalConfig, showAlert, showConfirm, closeModal } = useModal();
 
-  const navigate = useNavigate();
+  const { expanded, contentVisible, navigateAnimated } = useAnimatedNavigate(true);
   const location = useLocation();
   const tabRecebida = location.state?.tab;
 
@@ -78,7 +80,7 @@ Pleased the Lord
   const handleCurtida = async () => {
     if (!usuario) {
       showAlert("⚠️ Você precisa estar logado para curtir esta tablatura!");
-      navigate('/login');
+      navigateAnimated('/login', { expand: true });
       return;
     }
 
@@ -138,7 +140,7 @@ Pleased the Lord
           if (error) throw error;
 
           showAlert("Tablatura excluída com sucesso!");
-          navigate('/');
+          navigateAnimated('/', { expand: false });
         } catch (error) {
           console.error("Erro ao excluir:", error);
           showAlert("Ocorreu um erro ao excluir a tablatura.");
@@ -168,28 +170,7 @@ Pleased the Lord
         onConfirm={modalConfig.onConfirm}
         onClose={closeModal}
       />
-      {/* Botão Voltar - Canto Esquerdo */}
-      <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 10 }}>
-        <button
-          onClick={() => navigate('/')}
-          style={{
-            padding: '10px 18px',
-            backgroundColor: 'var(--color-bg-card)',
-            color: 'var(--color-primary)',
-            border: 'none',
-            borderRadius: '12px',
-            cursor: 'pointer',
-            fontWeight: 'bold',
-            boxShadow: '0 4px 12px var(--shadow-card)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
-        >
-          ← Voltar
-        </button>
-      </div>
-
+      <TopBar expanded={expanded} navigateAnimated={navigateAnimated} />
       {/* COLUNA DA ESQUERDA (Texto da Tablatura) */}
       <div
         style={{
@@ -199,8 +180,10 @@ Pleased the Lord
           justifyContent: 'center',
           alignItems: 'center',
           padding: '20px', // ajustado para ocupar melhor o espaço
+          paddingTop: `${TOPBAR_CLEARANCE}px`,
           boxSizing: 'border-box',
-          backgroundColor: 'var(--color-bg-page)'
+          backgroundColor: 'var(--color-bg-page)',
+          ...fadeStyle(contentVisible)
         }}
       >
         <div style={{
@@ -261,10 +244,16 @@ Pleased the Lord
           borderLeft: 'var(--border-width-base) solid var(--color-border-alt)',
           boxSizing: 'border-box',
           padding: '60px 40px',
+          paddingTop: `${TOPBAR_CLEARANCE}px`,
           overflowY: 'auto',
           display: 'flex',
           flexDirection: 'column',
-          justifyContent: 'center'
+          // flex-start (em vez de center): com justifyContent:'center' e
+          // overflowY:'auto', quando o card (edição + curtir + botões de
+          // dono) fica mais alto que a coluna, o topo dele nasce inacessível
+          // por scroll — mesmo bug já corrigido no Perfil e no Login.
+          justifyContent: 'flex-start',
+          ...fadeStyle(contentVisible)
         }}
       >
         <div style={{

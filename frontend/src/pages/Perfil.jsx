@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import CustomModal from '../components/CustomModal';
+import TopBar, { TOPBAR_CLEARANCE } from '../components/TopBar';
+import { useAnimatedNavigate, fadeStyle } from '../hooks/useAnimatedNavigate';
 import {
   hashPassword,
   uploadAvatar,
@@ -10,15 +12,17 @@ import {
 } from '../services/authService';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
-import ThemeControls from '../components/ThemeControls';
 
 export default function Perfil() {
-  const { modalConfig, showAlert, closeModal } = useModal();
+  const { modalConfig, showAlert, showConfirm, closeModal } = useModal();
 
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  // navigate "cru": usado só no guard de rota abaixo, que redireciona antes de
+  // qualquer conteúdo renderizar — não há o que dar fade ali.
   const navigate = useNavigate();
+  const { expanded, contentVisible, navigateAnimated } = useAnimatedNavigate(true);
 
   const { usuario, setUsuario, logout } = useAuthUser();
 
@@ -135,7 +139,7 @@ export default function Perfil() {
       await excluirConta({ email: usuario.email });
 
       logout();
-      navigate('/login');
+      navigateAnimated('/login', { expand: true });
     } catch (error) {
       console.error(error);
       showAlert("Ocorreu um erro ao excluir a conta.", "Erro", "error");
@@ -145,10 +149,25 @@ export default function Perfil() {
   };
 
   // =========================
+  // LOGOUT
+  // =========================
+  const handleLogout = () => {
+    showConfirm('Deseja mesmo sair?', {
+      title: 'Sair da conta',
+      type: 'warning',
+      onConfirm: () => {
+        logout();
+        navigateAnimated('/login', { expand: true });
+      }
+    });
+  };
+
+  // =========================
   // UI
   // =========================
   return (
     <div style={pageStyle}>
+      <TopBar expanded={expanded} navigateAnimated={navigateAnimated} />
       <CustomModal
         isOpen={modalConfig.isOpen}
         title={modalConfig.title}
@@ -157,7 +176,7 @@ export default function Perfil() {
         onConfirm={modalConfig.onConfirm}
         onClose={closeModal}
       />
-      <div style={cardStyle}>
+      <div style={{ ...cardStyle, ...fadeStyle(contentVisible) }}>
         <h1 style={{ color: 'var(--color-primary)' }}>Meu Perfil</h1>
 
         <p style={{ color: 'var(--color-text-muted)' }}>
@@ -185,10 +204,12 @@ export default function Perfil() {
               <p><b>Email:</b> {usuario.email}</p>
             </div>
 
-            <ThemeControls />
-
             <button style={buttonStyle} onClick={() => setIsEditing(true)}>
               Editar Perfil
+            </button>
+
+            <button style={{ ...buttonStyle, backgroundColor: 'var(--color-border-alt)', color: 'var(--color-text-muted)', marginTop: 10 }} onClick={handleLogout}>
+              Sair
             </button>
 
             <p style={danger} onClick={() => setIsDeletingAccount(true)}>
@@ -269,7 +290,7 @@ export default function Perfil() {
           </>
         )}
 
-        <p style={{ ...link, marginTop: 20, display: 'block' }} onClick={() => navigate('/')}>
+        <p style={{ ...link, marginTop: 20, display: 'block' }} onClick={() => navigateAnimated('/', { expand: false })}>
           Voltar ao menu
         </p>
       </div>
@@ -284,15 +305,24 @@ const pageStyle = {
   background: 'var(--color-bg-page)',
   display: 'flex',
   justifyContent: 'center',
-  alignItems: 'center',
-  fontFamily: 'Arial'
+  // flex-start (em vez de center): o card "Meu Perfil" cresce bastante nos modos
+  // de edição/exclusão de conta, e centralizar verticalmente empurrava o topo
+  // dele para cima da barra de menu. Assim ele sempre começa logo abaixo dela,
+  // com o mesmo respiro (TOPBAR_CLEARANCE) das outras telas, não importa o conteúdo.
+  alignItems: 'flex-start',
+  fontFamily: 'Arial',
+  padding: '20px',
+  paddingTop: `${TOPBAR_CLEARANCE}px`,
+  boxSizing: 'border-box',
+  overflowY: 'auto'
 };
 
 const cardStyle = {
+  width: '100%',
+  maxWidth: 420,
   background: 'var(--color-bg-card)',
   padding: 40,
   borderRadius: 24,
-  width: 420,
   textAlign: 'center',
   boxShadow: '0 15px 40px var(--shadow-card)'
 };

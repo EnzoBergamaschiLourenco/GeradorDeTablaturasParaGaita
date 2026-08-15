@@ -1,20 +1,24 @@
-import { useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import CustomModal from '../components/CustomModal';
-import { useAuthUser } from '../hooks/useAuthUser';
-import { useModal } from '../hooks/useModal';
+import AnimatedMenuBar, { TOPBAR_CLEARANCE } from '../components/AnimatedMenuBar';
+import { useAnimatedNavigate, CONTENT_FADE_MS } from '../hooks/useAnimatedNavigate';
 import { buscarTonsPorTipo } from '../services/gaitaLayoutService';
 import { buscarTablaturas } from '../services/tablaturaService';
 
 export default function Menu() {
 
-  const { modalConfig, showConfirm, closeModal } = useModal();
-
-  const navigate = useNavigate();
-
-  const { usuario, logout } = useAuthUser();
+  // Barra de perfil (canto superior direito): expande para virar a barra de
+  // menu completa quando a pesquisa está ativa OU quando o usuário clica em um
+  // botão que leva para outra tela (login, perfil, criar tabs) — nesse caso a
+  // navegação real só acontece depois que a animação termina de tocar, e o
+  // conteúdo abaixo (fadeStyle) some/aparece junto, em vez de trocar de tela
+  // de repente.
+  const { expanded: navExpanded, contentVisible, navigateAnimated } = useAnimatedNavigate(false);
   const [busca, setBusca] = useState('');
   const [mostrarSugestao, setMostrarSugestao] = useState(false);
+
+  const irParaLogin = () => navigateAnimated('/login', { expand: true });
+  const irParaPerfil = () => navigateAnimated('/Perfil', { expand: true });
+  const irParaCriarTabs = () => navigateAnimated('/CriarTabs', { expand: true });
 
   // Estados da pesquisa e filtros
   const [pesquisaAtiva, setPesquisaAtiva] = useState(false);
@@ -94,18 +98,6 @@ export default function Menu() {
 
     buscarTonsDoTipo();
   }, [filtroTipo]);
-
-  const handleLogout = () => {
-    showConfirm('Deseja mesmo sair?', {
-      title: 'Sair da conta',
-      type: 'warning',
-      onConfirm: () => {
-        // O que acontece se o usuário clicar em "Confirmar"
-        logout();
-        navigate('/login');
-      }
-    });
-  };
 
   // Função para buscar tablaturas no Supabase
   const handleBuscarTablaturas = async (termoInicial = '') => {
@@ -201,113 +193,21 @@ export default function Menu() {
         padding: '30px 20px 50px'
       }}
     >
-      {/* Login/Perfil - Canto Superior Esquerdo */}
-      <div
-        style={{
-          position: 'fixed',
-          top: '20px',
-          left: '20px',
-          zIndex: 10
-        }}
-      >
-        {usuario ? (
-          <div
-            onClick={() => navigate('/Perfil')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              backgroundColor: 'var(--color-bg-card)',
-              padding: '10px 14px',
-              borderRadius: '12px',
-              boxShadow: '0 4px 12px var(--shadow-card)',
-              overflow: 'hidden',
-              cursor: 'pointer'
-            }}
-          >
-            {usuario.foto_perfil ? (
-              <img
-                src={usuario.foto_perfil}
-                alt="Perfil"
-                style={{
-                  width: '50px',
-                  height: '50px',
-                  borderRadius: '50%',
-                  objectFit: 'cover',
-                  border: '2px solid var(--color-primary)',
-                  boxSizing: 'border-box'
-                }}
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                }}
-              />
-            ) : (
-              <svg viewBox="0 0 24 24" width="30" height="30" fill="var(--color-text-slate-2)">
-                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-              </svg>
-            )}
-
-            <div style={{ textAlign: 'left' }}>
-              <span
-                style={{
-                  display: 'block',
-                  fontWeight: 'bold',
-                  fontSize: '14px',
-                  color: 'var(--color-text-main)'
-                }}
-              >
-                {usuario.nome}
-              </span>
-              <span
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleLogout();
-                }}
-                style={{
-                  fontSize: '12px',
-                  color: 'var(--color-danger)',
-                  cursor: 'pointer',
-                  textDecoration: 'underline'
-                }}
-              >
-                Sair
-              </span>
-            </div>
-          </div>
-        ) : (
-          <button
-            onClick={() => navigate('/login')}
-            style={{
-              padding: '12px 24px',
-              backgroundColor: 'var(--color-primary)',
-              color: 'var(--color-text-on-primary)',
-              border: 'none',
-              borderRadius: '10px',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              boxShadow: '0 4px 12px var(--shadow-button-primary-alt)'
-            }}
-          >
-            Login / Sign-In
-          </button>
-        )}
-      </div>
-
-      {/* CONTEÚDO PRINCIPAL */}
-      <CustomModal
-        isOpen={modalConfig.isOpen}
-        title={modalConfig.title}
-        message={modalConfig.message}
-        type={modalConfig.type}
-        onConfirm={modalConfig.onConfirm}
-        onClose={closeModal}
+      <AnimatedMenuBar
+        expanded={pesquisaAtiva || navExpanded}
+        onTitleClick={voltarParaInicio}
+        onProfileClick={irParaPerfil}
+        onLoginClick={irParaLogin}
       />
+
+      {/* CONTEÚDO PRINCIPAL — fadeStyle: some ao navegar para outra tela, aparece com fade ao montar */}
       <div
         style={{
           width: '100%',
           maxWidth: pesquisaAtiva ? '1000px' : '550px',
-          margin: '70px auto 0',
-          transition: 'max-width 0.3s ease'
+          margin: `${TOPBAR_CLEARANCE}px auto 0`,
+          opacity: contentVisible ? 1 : 0,
+          transition: `max-width 0.3s ease, opacity ${CONTENT_FADE_MS}ms ease`
         }}
       >
         {!pesquisaAtiva ? (
@@ -413,7 +313,7 @@ export default function Menu() {
                   }}
                 >
                   <div
-                    onClick={() => navigate('/VisualizarTabs')}
+                    onClick={() => navigateAnimated('/VisualizarTabs', { expand: true })}
                     style={{
                       padding: '14px',
                       cursor: 'pointer',
@@ -432,7 +332,7 @@ export default function Menu() {
 
             {/* Botão Principal */}
             <button
-              onClick={() => navigate('/CriarTabs')}
+              onClick={irParaCriarTabs}
               style={{
                 width: '100%',
                 padding: '16px',
@@ -657,7 +557,7 @@ export default function Menu() {
                   <div
                     key={tab.id}
                     onClick={() =>
-                      navigate('/VisualizarTabs', { state: { tab } })
+                      navigateAnimated('/VisualizarTabs', { expand: true, state: { tab } })
                     }
                     style={{
                       backgroundColor: 'var(--color-bg-card-alt)',
@@ -745,7 +645,7 @@ export default function Menu() {
               }}
             >
               <button
-                onClick={() => navigate('/CriarTabs')}
+                onClick={irParaCriarTabs}
                 style={{
                   width: '100%',
                   padding: '16px',
