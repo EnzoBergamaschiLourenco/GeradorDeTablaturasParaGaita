@@ -42,7 +42,7 @@ export default function MontarTablatura() {
   // configuração é aplicada com sucesso), liberando espaço vertical pra
   // "Partes Ativas". O botão "Editar/Recolher" no cabeçalho alterna livremente,
   // independente de haver ou não uma configuração já aplicada.
-  const [configColapsada, setConfigColapsada] = useState(true);
+  const [configColapsada, setConfigColapsada] = useState(false);
 
   const [partesDisponiveis, setPartesDisponiveis] = useState([]);
   const [partesAdicionadas, setPartesAdicionadas] = useState([]);
@@ -214,7 +214,15 @@ export default function MontarTablatura() {
       );
       return;
     }
+    if (isPlaying) stop();
     setMostrarPreview(true);
+  };
+
+  const handleBtnPlayClick = () => {
+    if (configAplicada.tipo && configAplicada.tom) {
+      togglePlayAll(partesAdicionadas.map(p => p.id), midiSelecionado?.path, volumes);
+    }
+    else {showAlert("Por favor, selecione o Tipo e o Tom da gaita e aplique as configurações.", "Aviso", "warning");}
   };
 
   useEffect(() => {
@@ -1041,11 +1049,7 @@ export default function MontarTablatura() {
               <div style={{ display: 'flex', flexDirection: 'column', minWidth: '220px' }}>
                 <button
                   style={{ ...s.btnPlayAll, padding: '12px 18px', fontSize: '14px', borderRadius: '8px' }}
-                  onClick={() => togglePlayAll(
-                    partesAdicionadas.map(p => p.id),
-                    midiSelecionado?.path,
-                    volumes
-                  )}
+                  onClick={handleBtnPlayClick}
                 >
                   {playingId === 'ALL' && isPlaying ? '⏸ Pausar Música' : '▶ Tocar Música'}
                 </button>
@@ -1116,7 +1120,7 @@ export default function MontarTablatura() {
             <div style={s.overlayBarraWrap}>
               <button
                 style={{ ...s.btnPlayAll, padding: '10px 16px', fontSize: '13px', borderRadius: '8px', marginBottom: '10px' }}
-                onClick={() => togglePlayAll(partesAdicionadas.map(p => p.id), midiSelecionado?.path, volumes)}
+                onClick={handleBtnPlayClick}
               >
                 {playingId === 'ALL' && isPlaying ? '⏸ Pausar Música' : '▶ Tocar Música'}
               </button>
