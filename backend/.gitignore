@@ -28,3 +28,4 @@ dist-ssr
 __pycache__
 midiarchives/*
 services/__pycache__
+routes/__pycache__/
