@@ -29,6 +29,8 @@ export default function Perfil() {
   const [nome, setNome] = useState(usuario?.nome || '');
   const [fotoFile, setFotoFile] = useState(null);
 
+  const [mostrarSenhaNova, setMostrarSenhaNova] = useState(false);
+  const [mostrarSenhaAtual, setMostrarSenhaAtual] = useState(false);
   const [senhaAtual, setSenhaAtual] = useState('');
   const [senhaNova, setSenhaNova] = useState('');
   const [senhaConfirmacaoDelete, setSenhaConfirmacaoDelete] = useState('');
@@ -235,21 +237,67 @@ export default function Perfil() {
               onChange={(e) => setFotoFile(e.target.files[0])}
             />
 
-            <input
-              style={inputStyle}
-              type="password"
-              placeholder="Nova senha"
-              value={senhaNova}
-              onChange={(e) => setSenhaNova(e.target.value)}
-            />
-
-            <input
-              style={{ ...inputStyle, border: 'var(--border-width-base) solid var(--color-danger-pure)' }}
-              type="password"
-              placeholder="Senha atual"
-              value={senhaAtual}
-              onChange={(e) => setSenhaAtual(e.target.value)}
-            />
+            <div style={{ position: 'relative', marginBottom: '12px' }}>
+              <input
+                type={mostrarSenhaNova ? 'text' : 'password'}
+                placeholder="Nova Senha"
+                value={senhaNova}
+                onChange={(e) => setSenhaNova(e.target.value)}
+                style={{ ...inputStyle, marginBottom: 0, paddingRight: '44px' }}
+              />
+              <button
+                type="button"
+                onClick={() => setMostrarSenhaNova(!mostrarSenhaNova)}
+                style={eyeButtonStyle}
+                aria-label={mostrarSenhaNova ? 'Ocultar senha' : 'Mostrar senha'}
+                title={mostrarSenhaNova ? 'Ocultar senha' : 'Mostrar senha'}
+              >
+                {mostrarSenhaNova ? (
+                  // Olho aberto: senha visível
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                ) : (
+                  // Olho fechado/riscado: senha oculta
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 5c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                  </svg>
+                )}
+              </button>
+            </div>
+            
+            <div style={{ position: 'relative', marginBottom: '12px' }}>
+              <input
+                type={mostrarSenhaAtual ? 'text' : 'password'}
+                placeholder="Senha Atual"
+                value={senhaAtual}
+                onChange={(e) => setSenhaAtual(e.target.value)}
+                style={{ ...inputStyle, marginBottom: 0, paddingRight: '44px' }}
+              />
+              <button
+                type="button"
+                onClick={() => setMostrarSenhaAtual(!mostrarSenhaAtual)}
+                style={eyeButtonStyle}
+                aria-label={mostrarSenhaAtual ? 'Ocultar senha' : 'Mostrar senha'}
+                title={mostrarSenhaAtual ? 'Ocultar senha' : 'Mostrar senha'}
+              >
+                {mostrarSenhaAtual ? (
+                  // Olho aberto: senha visível
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                ) : (
+                  // Olho fechado/riscado: senha oculta
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 5c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                  </svg>
+                )}
+              </button>
+            </div>
 
             <button
               style={{ ...buttonStyle, backgroundColor: 'var(--color-success)' }}
@@ -380,4 +428,19 @@ const infoBox = {
   padding: 12,
   borderRadius: 12,
   marginBottom: 15
+};
+
+const eyeButtonStyle = {
+  position: 'absolute',
+  right: '10px',
+  top: '50%',
+  transform: 'translateY(-50%)',
+  background: 'none',
+  border: 'none',
+  padding: '4px',
+  cursor: 'pointer',
+  color: 'var(--color-text-muted)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center'
 };
