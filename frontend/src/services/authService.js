@@ -49,6 +49,9 @@ export async function buscarUsuarioPorCredenciais({ email, senha }) {
 }
 
 // Cadastra um novo usuário, hasheando a senha e (se enviada) subindo a foto.
+// .select().single() traz de volta a linha recém-criada (id incluso) — o
+// Login usa isso pra logar o usuário na hora, sem precisar de uma segunda
+// consulta nem de passar pela tela de login de novo.
 export async function registrarUsuario({ nome, email, senha, fotoFile }) {
   let urlFoto = '';
 
@@ -61,7 +64,9 @@ export async function registrarUsuario({ nome, email, senha, fotoFile }) {
 
   return supabase
     .from('usuarios')
-    .insert([{ nome, email, senha: senhaHasheada, foto_perfil: urlFoto }]);
+    .insert([{ nome, email, senha: senhaHasheada, foto_perfil: urlFoto }])
+    .select()
+    .single();
 }
 
 // Aplica atualizações já preparadas pelo chamador (ex.: nome, foto_perfil,

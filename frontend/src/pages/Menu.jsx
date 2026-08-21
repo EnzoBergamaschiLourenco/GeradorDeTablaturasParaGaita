@@ -1,8 +1,104 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import AnimatedMenuBar, { TOPBAR_CLEARANCE } from '../components/AnimatedMenuBar';
 import { useAnimatedNavigate, CONTENT_FADE_MS } from '../hooks/useAnimatedNavigate';
 import { buscarTonsPorTipo } from '../services/gaitaLayoutService';
 import { buscarTablaturas } from '../services/tablaturaService';
+
+// Estilos do controle de filtros recolhível — isolados aqui (mesmo padrão do
+// bloco "Configurações da Gaita" de MontarTablatura.jsx) pra facilitar
+// personalização sem mexer no restante da tela de resultados.
+const filtrosStyles = {
+  btnToggle: { padding: '4px 10px', fontSize: '12px', fontWeight: 'bold', backgroundColor: 'var(--color-bg-card-alt)', color: 'var(--color-primary)', border: 'var(--border-width-base) solid var(--color-border-alt)', borderRadius: '8px', cursor: 'pointer', flexShrink: 0 },
+  btnLimpar: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', padding: 0, fontSize: '13px', backgroundColor: 'var(--color-bg-danger-soft)', color: 'var(--color-text-danger-strong)', border: 'var(--border-width-base) solid var(--color-danger)', borderRadius: '8px', cursor: 'pointer', flexShrink: 0 },
+  resumo: { fontSize: '13px', color: 'var(--color-text-muted)' }
+};
+
+const RESULTADOS_POR_PAGINA = 15;
+
+const OPCOES_ORDENACAO = [
+  { valor: 'curtidas_desc', rotulo: 'Mais curtidas' },
+  { valor: 'curtidas_asc', rotulo: 'Menos curtidas' },
+  { valor: 'recentes', rotulo: 'Mais recentes' },
+  { valor: 'antigas', rotulo: 'Mais antigas' },
+  { valor: 'alfabetica_az', rotulo: 'Nome da música (A-Z)' },
+  { valor: 'alfabetica_za', rotulo: 'Nome da música (Z-A)' }
+];
+
+// Ordenação aplicada só na exibição (não refaz a busca) — os resultados
+// crus ficam guardados em `resultados` e são reordenados aqui conforme o
+// critério escolhido em "Ordenar por".
+function ordenarResultados(lista, criterio) {
+  const copia = [...lista];
+
+  switch (criterio) {
+    case 'curtidas_asc':
+      return copia.sort((a, b) => a.totalCurtidas - b.totalCurtidas);
+    case 'recentes':
+      return copia.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    case 'antigas':
+      return copia.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    case 'alfabetica_az':
+      return copia.sort((a, b) => a.nome_musica.localeCompare(b.nome_musica));
+    case 'alfabetica_za':
+      return copia.sort((a, b) => b.nome_musica.localeCompare(a.nome_musica));
+    case 'curtidas_desc':
+    default:
+      return copia.sort((a, b) => b.totalCurtidas - a.totalCurtidas);
+  }
+}
+
+// Botões de "Anterior / Próxima / Última" — usado antes e depois da lista de
+// resultados (mesma navegação nos dois lugares, pra facilitar o uso em listas
+// longas sem precisar rolar até o topo ou até o fim pra trocar de página).
+function ControlesPaginacao({ paginaAtual, totalPaginas, onMudarPagina }) {
+  if (totalPaginas <= 1) return null;
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '10px',
+        padding: '14px 0'
+      }}
+    >
+      <button type="button" onClick={() => onMudarPagina(1)} disabled={paginaAtual === 1} style={paginacaoStyles.btn(paginaAtual === 1)} title="Primeira página" aria-label="Primeira página">
+        «
+      </button>
+      <button type="button" onClick={() => onMudarPagina(paginaAtual - 1)} disabled={paginaAtual === 1} style={paginacaoStyles.btn(paginaAtual === 1)} title="Página anterior" aria-label="Página anterior">
+        ‹
+      </button>
+
+      <span style={paginacaoStyles.info}>
+        Página {paginaAtual} de {totalPaginas}
+      </span>
+
+      <button type="button" onClick={() => onMudarPagina(paginaAtual + 1)} disabled={paginaAtual === totalPaginas} style={paginacaoStyles.btn(paginaAtual === totalPaginas)} title="Próxima página" aria-label="Próxima página">
+        ›
+      </button>
+      <button type="button" onClick={() => onMudarPagina(totalPaginas)} disabled={paginaAtual === totalPaginas} style={paginacaoStyles.btn(paginaAtual === totalPaginas)} title="Última página" aria-label="Última página">
+        »
+      </button>
+    </div>
+  );
+}
+
+const paginacaoStyles = {
+  btn: (desabilitado) => ({
+    padding: '7px 12px',
+    fontSize: '13px',
+    fontWeight: 'bold',
+    backgroundColor: 'var(--color-bg-card-alt)',
+    color: desabilitado ? 'var(--color-text-light)' : 'var(--color-primary)',
+    border: 'var(--border-width-base) solid var(--color-border-alt)',
+    borderRadius: '8px',
+    cursor: desabilitado ? 'default' : 'pointer',
+    opacity: desabilitado ? 0.5 : 1
+  }),
+  info: { fontSize: '13px', color: 'var(--color-text-muted)', margin: '0 6px' }
+};
 
 export default function Menu() {
 
@@ -31,6 +127,68 @@ export default function Menu() {
   const [filtroAutorTab, setFiltroAutorTab] = useState('');
   const [filtroTom, setFiltroTom] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('');
+
+  // Bloco de filtros recolhido por padrão ao entrar nos resultados, pra dar
+  // foco à lista; "Editar" reabre os campos, "Recolher" some com eles de
+  // novo — mesmo padrão de "Configurações da Gaita" em MontarTablatura.jsx.
+  const [filtrosColapsados, setFiltrosColapsados] = useState(true);
+
+  // Snapshot dos filtros realmente aplicados na última busca — separado dos
+  // campos "ao vivo" acima (filtroNomeMusica etc.) pra que o cabeçalho
+  // ("Resultados para X", contagem de filtros) só mude quando o usuário
+  // clicar em "Aplicar Filtros", não a cada tecla digitada.
+  const [filtrosAplicados, setFiltrosAplicados] = useState({
+    nome: '', autorMusica: '', autorTab: '', tom: '', tipo: ''
+  });
+  const filtrosAtivos = Object.values(filtrosAplicados).filter((valor) => valor).length;
+
+  // Paginação e ordenação da lista de resultados — puramente de exibição,
+  // não disparam nova busca no Supabase. Toda nova busca volta pra página 1
+  // e pro critério padrão (mais curtidas primeiro).
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const [ordenacao, setOrdenacao] = useState('curtidas_desc');
+  const topoListaRef = useRef(null);
+  // Div raiz com o scroll de verdade da tela (position:fixed + overflowY:auto
+  // — a página em si não rola, esse container interno é quem rola). Usado
+  // pelo atalho de paginação de baixo pra voltar ao topo da TELA, não só da
+  // lista.
+  const scrollContainerRef = useRef(null);
+  // true só entre o clique no atalho de baixo e o próximo commit do React —
+  // sinaliza pro efeito abaixo que essa troca de página específica precisa
+  // rolar pro topo.
+  const deveRolarParaTopoRef = useRef(false);
+
+  // Atalhos de paginação de cima da lista: rolam só até o início da lista
+  // (já estão praticamente ali).
+  const irParaPagina = (pagina) => {
+    setPaginaAtual(pagina);
+    topoListaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  // Atalhos de baixo, que ficam longe do topo da tela depois de uma lista
+  // grande: levam o usuário de volta pro topo da tela inteira ao trocar de
+  // página. O scroll só acontece dentro do useEffect (depois que o React já
+  // trocou o conteúdo da lista pra nova página) — chamar scrollTo direto
+  // aqui, na mesma passada que muda a página, deixava a rolagem instável:
+  // o navegador começava a animar com a altura da página ANTIGA (ainda na
+  // tela no exato instante do clique) e, no meio da animação suave, o
+  // conteúdo trocava de altura (página nova, geralmente com menos itens),
+  // fazendo o scroll parar antes de chegar ao topo.
+  const irParaPaginaEVoltarAoTopo = (pagina) => {
+    deveRolarParaTopoRef.current = true;
+    setPaginaAtual(pagina);
+    // O próprio botão clicado fica focado; alguns navegadores tentam manter
+    // o elemento focado visível e brigam com a rolagem programática pro
+    // topo. Tirando o foco aqui, isso não acontece.
+    document.activeElement?.blur();
+  };
+
+  useEffect(() => {
+    if (deveRolarParaTopoRef.current) {
+      deveRolarParaTopoRef.current = false;
+      scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [paginaAtual]);
 
   // Tons existentes para o tipo de gaita selecionado
   const [tonsFiltroDisponiveis, setTonsFiltroDisponiveis] = useState([]);
@@ -103,9 +261,26 @@ export default function Menu() {
   const handleBuscarTablaturas = async (termoInicial = '') => {
     setCarregando(true);
     setPesquisaAtiva(true);
+    // Toda nova busca reaplica o critério padrão (mais curtidas) e volta
+    // pra primeira página, independente do que estava selecionado antes.
+    setPaginaAtual(1);
+    setOrdenacao('curtidas_desc');
+    // Ao aplicar, recolhe os campos de filtro de volta — dá foco pros
+    // resultados assim que a busca é feita, sem precisar de um clique extra.
+    setFiltrosColapsados(true);
 
     try {
       const nomeParaBuscar = filtroNomeMusica || termoInicial;
+
+      // Só agora — de fato aplicando a busca — o snapshot exibido no
+      // cabeçalho é atualizado (ver comentário em filtrosAplicados).
+      setFiltrosAplicados({
+        nome: nomeParaBuscar,
+        autorMusica: filtroAutorMusica,
+        autorTab: filtroAutorTab,
+        tom: filtroTom,
+        tipo: filtroTipo
+      });
 
       const { data, error } = await buscarTablaturas({
         nome: nomeParaBuscar,
@@ -138,9 +313,6 @@ export default function Menu() {
           };
         });
 
-        // Ordenação: maior número de curtidas primeiro
-        formatados.sort((a, b) => b.totalCurtidas - a.totalCurtidas);
-
         setResultados(formatados);
       }
     } catch (err) {
@@ -161,6 +333,17 @@ export default function Menu() {
     }
   };
 
+  // Limpa só os campos de filtro (o que já foi aplicado na busca continua
+  // valendo até "Aplicar Filtros" ser clicado de novo) — pensado pra
+  // redefinir rápido antes de montar uma nova combinação de filtros.
+  const limparCamposDeFiltro = () => {
+    setFiltroNomeMusica('');
+    setFiltroAutorMusica('');
+    setFiltroAutorTab('');
+    setFiltroTom('');
+    setFiltroTipo('');
+  };
+
   const handleKeyDownBusca = (e) => {
     if (e.key === 'Enter') {
       handlePesquisaPrincipal();
@@ -177,10 +360,23 @@ export default function Menu() {
     setFiltroAutorTab('');
     setFiltroTom('');
     setFiltroTipo('');
+    setFiltrosColapsados(true);
+    setFiltrosAplicados({ nome: '', autorMusica: '', autorTab: '', tom: '', tipo: '' });
+    setPaginaAtual(1);
+    setOrdenacao('curtidas_desc');
   };
+
+  const resultadosOrdenados = ordenarResultados(resultados, ordenacao);
+  const totalPaginas = Math.max(1, Math.ceil(resultadosOrdenados.length / RESULTADOS_POR_PAGINA));
+  const paginaSegura = Math.min(paginaAtual, totalPaginas);
+  const resultadosDaPagina = resultadosOrdenados.slice(
+    (paginaSegura - 1) * RESULTADOS_POR_PAGINA,
+    paginaSegura * RESULTADOS_POR_PAGINA
+  );
 
   return (
     <div
+      ref={scrollContainerRef}
       style={{
         position: 'fixed',
         inset: 0,
@@ -368,38 +564,27 @@ export default function Menu() {
               boxSizing: 'border-box'
             }}
           >
+            {/* Título fixo à esquerda, isolado numa linha só sua — não se
+                move conforme o texto da busca/filtros muda de tamanho. */}
             <div
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
                 gap: '15px',
-                marginBottom: '25px'
+                marginBottom: '10px'
               }}
             >
-              <div>
-                <h1
-                  style={{
-                    margin: 0,
-                    color: 'var(--color-primary)',
-                    fontSize: '30px'
-                  }}
-                >
-                  Resultados
-                </h1>
-
-                <p
-                  style={{
-                    margin: '7px 0 0',
-                    color: 'var(--color-text-muted)',
-                    fontSize: '14px'
-                  }}
-                >
-                  {filtroNomeMusica
-                    ? `Resultados para "${filtroNomeMusica}"`
-                    : 'Filtre as tablaturas disponíveis'}
-                </p>
-              </div>
+              <h1
+                style={{
+                  margin: 0,
+                  color: 'var(--color-primary)',
+                  fontSize: '30px',
+                  flexShrink: 0
+                }}
+              >
+                Resultados
+              </h1>
 
               <button
                 onClick={voltarParaInicio}
@@ -417,127 +602,238 @@ export default function Menu() {
               </button>
             </div>
 
-            {/* Filtros */}
+            {/* Subtítulo (só reflete a última busca aplicada, não os campos
+                sendo digitados) + controle de filtros na mesma linha, pra não
+                ocupar espaço vertical extra — "Editar Filtros" expande os
+                campos abaixo com animação, "Recolher Filtros" some com eles
+                de novo, sem trocar de tela. Espaço embaixo só existe quando
+                expandido (separa do grid de campos); recolhido, o espaço até
+                a linha divisória vem só da margem da própria linha. */}
             <div
               style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: '12px',
-                marginBottom: '15px'
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '10px',
+                marginBottom: filtrosColapsados ? 0 : '15px'
               }}
             >
-              <input
-                type="text"
-                placeholder="Nome da música"
-                value={filtroNomeMusica}
-                onChange={(e) => setFiltroNomeMusica(e.target.value)}
+              <p
                 style={{
-                  padding: '10px',
-                  borderRadius: '8px',
-                  border: 'var(--border-width-base) solid var(--color-border-neutral)'
-                }}
-              />
-
-              <input
-                type="text"
-                placeholder="Autor da música"
-                value={filtroAutorMusica}
-                onChange={(e) => setFiltroAutorMusica(e.target.value)}
-                style={{
-                  padding: '10px',
-                  borderRadius: '8px',
-                  border: 'var(--border-width-base) solid var(--color-border-neutral)'
-                }}
-              />
-
-              <input
-                type="text"
-                placeholder="Autor da tab"
-                value={filtroAutorTab}
-                onChange={(e) => setFiltroAutorTab(e.target.value)}
-                style={{
-                  padding: '10px',
-                  borderRadius: '8px',
-                  border: 'var(--border-width-base) solid var(--color-border-neutral)',
-                  gridColumn: 'span 2'
-                }}
-              />
-
-              {/* Dropdown Tom da Gaita */}
-              <select
-                value={filtroTom}
-                onChange={(e) => setFiltroTom(e.target.value)}
-                disabled={carregandoTonsFiltro}
-                style={{
-                  padding: '10px',
-                  borderRadius: '8px',
-                  border: 'var(--border-width-base) solid var(--color-border-neutral)',
+                  margin: 0,
+                  color: 'var(--color-text-muted)',
+                  fontSize: '14px'
                 }}
               >
-                <option value="">
-                  {carregandoTonsFiltro
-                    ? 'Carregando tons...'
-                    : 'Tom da gaita (Todos)'}
-                </option>
+                {resultados.length} Resultado{resultados.length !== 1 ? 's' : ''}
+                {filtrosAplicados.nome ? ` para "${filtrosAplicados.nome}"` : ''}
+              </p>
 
-                {tonsFiltroDisponiveis.map((tom) => (
-                  <option key={tom} value={tom}>
-                    {tom}
-                  </option>
-                ))}
-              </select>
-
-              {/* Dropdown Tipo da Gaita */}
-              <select
-                value={filtroTipo}
-                onChange={(e) => {
-                  setFiltroTipo(e.target.value);
-                  setFiltroTom('');
-                }}
-                style={{
-                  padding: '10px',
-                  borderRadius: '8px',
-                  border: 'var(--border-width-base) solid var(--color-border-neutral)',
-                }}
-              >
-                <option value="">Tipo da gaita (Todos)</option>
-
-                {tiposDeGaita.map((tipo) => (
-                  <option key={tipo} value={tipo}>
-                    {tipo}
-                  </option>
-                ))}
-              </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {filtrosColapsados && (
+                  <span style={filtrosStyles.resumo}>
+                    {filtrosAtivos > 0
+                      ? `${filtrosAtivos} filtro${filtrosAtivos > 1 ? 's' : ''} aplicado${filtrosAtivos > 1 ? 's' : ''}`
+                      : 'Nenhum filtro aplicado'}
+                  </span>
+                )}
+                {!filtrosColapsados && (
+                  <button type="button" onClick={limparCamposDeFiltro} style={filtrosStyles.btnLimpar} title="Limpar filtros" aria-label="Limpar filtros">
+                    🧹
+                  </button>
+                )}
+                <button type="button" onClick={() => setFiltrosColapsados((prev) => !prev)} style={filtrosStyles.btnToggle}>
+                  {filtrosColapsados ? 'Editar Filtros ▾' : 'Recolher Filtros ▴'}
+                </button>
+              </div>
             </div>
 
-            <button
-              onClick={() => handleBuscarTablaturas()}
-              style={{
-                width: '100%',
-                padding: '12px',
-                backgroundColor: 'var(--color-primary)',
-                color: 'var(--color-text-on-primary)',
-                border: 'none',
-                borderRadius: '8px',
-                fontWeight: 'bold',
-                cursor: 'pointer'
-              }}
-            >
-              Aplicar Filtros
-            </button>
+            <div style={{ display: 'grid', gridTemplateRows: filtrosColapsados ? '0fr' : '1fr', transition: 'grid-template-rows 300ms ease' }}>
+              <div style={{ overflow: 'hidden' }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '12px',
+                    marginBottom: '15px'
+                  }}
+                >
+                  <input
+                    type="text"
+                    placeholder="Nome da música"
+                    value={filtroNomeMusica}
+                    onChange={(e) => setFiltroNomeMusica(e.target.value)}
+                    style={{
+                      padding: '10px',
+                      borderRadius: '8px',
+                      border: 'var(--border-width-base) solid var(--color-border-neutral)'
+                    }}
+                  />
 
+                  <input
+                    type="text"
+                    placeholder="Autor da música"
+                    value={filtroAutorMusica}
+                    onChange={(e) => setFiltroAutorMusica(e.target.value)}
+                    style={{
+                      padding: '10px',
+                      borderRadius: '8px',
+                      border: 'var(--border-width-base) solid var(--color-border-neutral)'
+                    }}
+                  />
+
+                  <input
+                    type="text"
+                    placeholder="Autor da tab"
+                    value={filtroAutorTab}
+                    onChange={(e) => setFiltroAutorTab(e.target.value)}
+                    style={{
+                      padding: '10px',
+                      borderRadius: '8px',
+                      border: 'var(--border-width-base) solid var(--color-border-neutral)',
+                      gridColumn: 'span 2'
+                    }}
+                  />
+
+                  {/* Dropdown Tom da Gaita */}
+                  <select
+                    value={filtroTom}
+                    onChange={(e) => setFiltroTom(e.target.value)}
+                    disabled={carregandoTonsFiltro}
+                    style={{
+                      padding: '10px',
+                      borderRadius: '8px',
+                      border: 'var(--border-width-base) solid var(--color-border-neutral)',
+                    }}
+                  >
+                    <option value="">
+                      {carregandoTonsFiltro
+                        ? 'Carregando tons...'
+                        : 'Tom da gaita (Todos)'}
+                    </option>
+
+                    {tonsFiltroDisponiveis.map((tom) => (
+                      <option key={tom} value={tom}>
+                        {tom}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Dropdown Tipo da Gaita */}
+                  <select
+                    value={filtroTipo}
+                    onChange={(e) => {
+                      setFiltroTipo(e.target.value);
+                      setFiltroTom('');
+                    }}
+                    style={{
+                      padding: '10px',
+                      borderRadius: '8px',
+                      border: 'var(--border-width-base) solid var(--color-border-neutral)',
+                    }}
+                  >
+                    <option value="">Tipo da gaita (Todos)</option>
+
+                    {tiposDeGaita.map((tipo) => (
+                      <option key={tipo} value={tipo}>
+                        {tipo}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  onClick={() => handleBuscarTablaturas()}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    backgroundColor: 'var(--color-primary)',
+                    color: 'var(--color-text-on-primary)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Aplicar Filtros
+                </button>
+              </div>
+            </div>
+
+            {/* Separa os campos de filtro (recolhidos ou expandidos) da
+                lista de resultados. Essa margem é a referência de espaçamento
+                pros dois lados — o mesmo valor é usado no espaço entre o
+                subtítulo e a linha quando os filtros estão recolhidos, e
+                entre a linha e a linha "Ordenar por" logo abaixo. */}
             <hr
               style={{
                 border: 'none',
                 borderTop: 'var(--border-width-base) solid var(--color-border-divider)',
-                margin: '25px 0'
+                margin: '10px 0'
               }}
             />
 
-            {/* Lista de Cards */}
-            <h3 style={{ margin: '0 0 15px', color: 'var(--color-text-faint)' }}>
-              Resultados
-            </h3>
+            {/* Lista de Cards — "Ordenar por" à esquerda e paginação
+                centralizada, na mesma linha. Grid de 3 colunas (não flex com
+                position:absolute) pra centralizar a paginação sem nunca
+                sobrepor a ordenação — cada coluna reserva seu próprio
+                espaço, então se a linha ficar estreita o conteúdo
+                quebra/encolhe dentro da própria coluna em vez de invadir a
+                vizinha. A paginação some daqui se não houver mais de uma
+                página; a ordenação não se repete embaixo, diferente da
+                paginação (que ajuda tanto no topo quanto no fim de listas
+                longas). */}
+            <div
+              ref={topoListaRef}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
+                alignItems: 'center',
+                gap: '10px',
+                marginTop: 0,
+                marginBottom: '15px'
+              }}
+            >
+              <div style={{ justifySelf: 'start', minWidth: 0, maxWidth: '100%' }}>
+                {resultados.length > 0 && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '13px', color: 'var(--color-text-muted)', minWidth: 0 }}>
+                    Ordenar por:
+                    <select
+                      value={ordenacao}
+                      onChange={(e) => {
+                        setOrdenacao(e.target.value);
+                        setPaginaAtual(1);
+                      }}
+                      style={{
+                        padding: '6px 8px',
+                        borderRadius: '8px',
+                        border: 'var(--border-width-base) solid var(--color-border-neutral)',
+                        fontSize: '13px',
+                        minWidth: 0,
+                        maxWidth: '100%'
+                      }}
+                    >
+                      {OPCOES_ORDENACAO.map((opcao) => (
+                        <option key={opcao.valor} value={opcao.valor}>
+                          {opcao.rotulo}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+
+              <div style={{ justifySelf: 'center' }}>
+                {!carregando && resultados.length > 0 && (
+                  <ControlesPaginacao
+                    paginaAtual={paginaSegura}
+                    totalPaginas={totalPaginas}
+                    onMudarPagina={irParaPagina}
+                  />
+                )}
+              </div>
+            </div>
 
             {carregando ? (
               <p style={{ color: 'var(--color-text-muted)' }}>Carregando tablaturas...</p>
@@ -546,14 +842,15 @@ export default function Menu() {
                 Nenhuma tablatura encontrada.
               </p>
             ) : (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '15px'
-                }}
-              >
-                {resultados.map((tab) => (
+              <>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '15px'
+                  }}
+                >
+                  {resultadosDaPagina.map((tab) => (
                   <div
                     key={tab.id}
                     onClick={() =>
@@ -632,8 +929,15 @@ export default function Menu() {
                       <span>👍 {tab.totalCurtidas} curtidas</span>
                     </div>
                   </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+
+                <ControlesPaginacao
+                  paginaAtual={paginaSegura}
+                  totalPaginas={totalPaginas}
+                  onMudarPagina={irParaPaginaEVoltarAoTopo}
+                />
+              </>
             )}
 
             {/* Botão de criar tablatura somente no final dos resultados */}
