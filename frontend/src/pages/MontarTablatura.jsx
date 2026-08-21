@@ -139,7 +139,7 @@ export default function MontarTablatura() {
 
       const dataAtual = new Date().toISOString().split('T')[0];
 
-      const { error: insertError } = await salvarNovaTablatura({
+      const { data: tablaturaSalva, error: insertError } = await salvarNovaTablatura({
         tablatura: textoTablatura,
         data: dataAtual,
         usuarioId: usuario.id,
@@ -163,7 +163,27 @@ export default function MontarTablatura() {
             console.error("Erro ao salvar a avaliação do MIDI:", ratingError);
           }
         }
-        navigateAnimated('/', { expand: false });
+
+        // Vai direto pra tela de visualização da tablatura recém-criada, em
+        // vez de voltar pro menu — monta o mesmo formato de objeto que o
+        // Menu passa pro VisualizarTabs ao clicar num resultado de busca.
+        navigateAnimated('/VisualizarTabs', {
+          expand: true,
+          state: {
+            tab: {
+              id: tablaturaSalva.id,
+              usuario_id: usuario.id,
+              autor_tab: usuario.nome,
+              nome_musica: nome,
+              autor_musica: autor,
+              midi_utilizado: midiSelecionado?.arquivo_midi || 'Nenhum',
+              tom_gaita: tomGaita,
+              tipo_gaita: tipoGaita,
+              created_at: dataAtual,
+              conteudo: textoTablatura
+            }
+          }
+        });
       }
     } catch (err) {
       console.error(err);
@@ -782,7 +802,6 @@ export default function MontarTablatura() {
             style={s.selectVelocidadeCompacto}
             onChange={(e) => changeSpeed(parseFloat(e.target.value))}
             value={playbackSpeed}
-            disabled={!isPlaying}
           >
             <option value={1}>1x</option>
             <option value={0.5}>0.5x</option>
@@ -817,6 +836,7 @@ export default function MontarTablatura() {
           message={modalConfig.message}
           type={modalConfig.type}
           onConfirm={modalConfig.onConfirm}
+          confirmLabel={modalConfig.confirmLabel}
           onClose={closeModal}
         />
         <TopBar expanded={expanded} navigateAnimated={navigateAnimated} />
@@ -904,6 +924,7 @@ export default function MontarTablatura() {
         message={modalConfig.message}
         type={modalConfig.type}
         onConfirm={modalConfig.onConfirm}
+        confirmLabel={modalConfig.confirmLabel}
         onClose={closeModal}
       />
       <TopBar expanded={expanded} navigateAnimated={navigateAnimated} />

@@ -247,6 +247,7 @@ export default function CriarTabs() {
           message={modalConfig.message}
           type={modalConfig.type}
           onConfirm={modalConfig.onConfirm}
+          confirmLabel={modalConfig.confirmLabel}
           onClose={closeModal}
         />
         {/* COLUNA ESQUERDA: FORMULÁRIO */}

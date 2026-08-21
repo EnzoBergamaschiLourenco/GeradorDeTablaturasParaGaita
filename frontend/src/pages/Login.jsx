@@ -253,6 +253,7 @@ export default function Login() {
         message={modalConfig.message}
         type={modalConfig.type}
         onConfirm={modalConfig.onConfirm}
+        confirmLabel={modalConfig.confirmLabel}
         onClose={closeModal}
       />
       <div

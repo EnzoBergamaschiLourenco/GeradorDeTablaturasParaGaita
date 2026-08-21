@@ -240,7 +240,6 @@ export function useMidiPlayer() {
 
   const pauseAll = () => {
     stopPlaybackClock();
-    changeSpeed(parseFloat(1));
     if (playerRef.current) {
       try {
         // Calcula o tempo REAL da sequência, usando as mesmas refs do relógio

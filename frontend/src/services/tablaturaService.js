@@ -89,15 +89,22 @@ export async function excluirTablatura(id) {
   return supabase.from('tablaturas').delete().eq('id', id);
 }
 
+// .select().single() traz de volta a linha recém-criada (id incluso) — o
+// MontarTablatura usa isso pra levar o usuário direto pra tela de
+// visualização da tablatura que acabou de criar.
 export async function salvarNovaTablatura({ tablatura, data, usuarioId, midiId, musicaId, gaitaId }) {
-  return supabase.from('tablaturas').insert({
-    tablatura,
-    data,
-    usuario_id: usuarioId,
-    midi_id: midiId,
-    musica_id: musicaId,
-    gaita_id: gaitaId
-  });
+  return supabase
+    .from('tablaturas')
+    .insert({
+      tablatura,
+      data,
+      usuario_id: usuarioId,
+      midi_id: midiId,
+      musica_id: musicaId,
+      gaita_id: gaitaId
+    })
+    .select()
+    .single();
 }
 
 export async function avaliarMidi({ usuarioId, midiId, nota }) {

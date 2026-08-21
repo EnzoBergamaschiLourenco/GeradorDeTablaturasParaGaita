@@ -1,5 +1,5 @@
 // src/components/CustomModal.jsx
-export default function CustomModal({ isOpen, title, message, type = 'info', onConfirm, onClose }) {
+export default function CustomModal({ isOpen, title, message, type = 'info', onConfirm, onClose, confirmLabel }) {
   if (!isOpen) return null;
 
   return (
@@ -25,7 +25,7 @@ export default function CustomModal({ isOpen, title, message, type = 'info', onC
             }}
             onClick={onConfirm || onClose}
           >
-            Confirmar
+            {confirmLabel || 'Confirmar'}
           </button>
         </div>
       </div>

@@ -5,7 +5,8 @@ const ESTADO_INICIAL = {
   title: '',
   message: '',
   type: 'info',
-  onConfirm: null
+  onConfirm: null,
+  confirmLabel: undefined
 };
 
 // Unifica o padrão modalConfig/showAlert duplicado em várias páginas, além
@@ -15,11 +16,14 @@ export function useModal() {
   const [modalConfig, setModalConfig] = useState(ESTADO_INICIAL);
 
   const showAlert = (message, title = 'Aviso', type = 'info') => {
-    setModalConfig({ isOpen: true, title, message, type, onConfirm: null });
+    setModalConfig({ isOpen: true, title, message, type, onConfirm: null, confirmLabel: undefined });
   };
 
-  const showConfirm = (message, { title = 'Confirmação', type = 'warning', onConfirm } = {}) => {
-    setModalConfig({ isOpen: true, title, message, type, onConfirm });
+  // confirmLabel: sobrescreve o texto padrão ("Confirmar") do botão de
+  // confirmação — útil quando a ação precisa deixar bem claro o que vai
+  // acontecer (ex.: "Sim, excluir todos os meus dados").
+  const showConfirm = (message, { title = 'Confirmação', type = 'warning', onConfirm, confirmLabel } = {}) => {
+    setModalConfig({ isOpen: true, title, message, type, onConfirm, confirmLabel });
   };
 
   const closeModal = () => {

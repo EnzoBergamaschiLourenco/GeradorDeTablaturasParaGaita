@@ -18,7 +18,12 @@ export default function Perfil() {
 
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  // isDeletingAccount: se o popup de exclusão de conta está aberto (por
+  // cima da tela, não trocando o conteúdo dela). deleteStep controla qual
+  // dos dois passos aparece dentro dele: confirmação inicial, depois o
+  // campo de senha.
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteStep, setDeleteStep] = useState('confirmar');
   // navigate "cru": usado só no guard de rota abaixo, que redireciona antes de
   // qualquer conteúdo renderizar — não há o que dar fade ali.
   const navigate = useNavigate();
@@ -119,6 +124,19 @@ export default function Perfil() {
   // =========================
   // DELETE ACCOUNT
   // =========================
+  // Abre o popup de exclusão, sempre começando pelo passo de confirmação
+  // (não pelo campo de senha, mesmo que tenha ficado aberto nele antes).
+  const handleDeleteAccountClick = () => {
+    setDeleteStep('confirmar');
+    setIsDeletingAccount(true);
+  };
+
+  const fecharModalExcluir = () => {
+    setIsDeletingAccount(false);
+    setDeleteStep('confirmar');
+    setSenhaConfirmacaoDelete('');
+  };
+
   const handleDeleteAccount = async () => {
     if (!senhaConfirmacaoDelete) {
       showAlert("Digite sua senha.", "Aviso", "info");
@@ -176,8 +194,71 @@ export default function Perfil() {
         message={modalConfig.message}
         type={modalConfig.type}
         onConfirm={modalConfig.onConfirm}
+        confirmLabel={modalConfig.confirmLabel}
         onClose={closeModal}
       />
+
+      {/* Popup de exclusão de conta, em dois passos dentro do mesmo overlay
+          (visual igual ao CustomModal, mas com campo de senha no segundo
+          passo — por isso não é o CustomModal genérico). */}
+      {isDeletingAccount && (
+        <div style={modalOverlayStyle}>
+          <div style={modalBoxStyle}>
+            {deleteStep === 'confirmar' ? (
+              <>
+                <h3 style={{ color: 'var(--color-danger-strong)', marginBottom: '10px' }}>
+                  Excluir conta
+                </h3>
+                <p style={{ color: 'var(--color-text-main)', marginBottom: '20px', fontSize: '15px' }}>
+                  Tem certeza que deseja excluir sua conta? Essa ação não pode ser desfeita.
+                </p>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <button style={modalCancelButtonStyle} onClick={fecharModalExcluir}>
+                    Cancelar
+                  </button>
+                  <button
+                    style={{ ...modalConfirmButtonStyle, backgroundColor: 'var(--color-danger-strong)' }}
+                    onClick={() => setDeleteStep('senha')}
+                  >
+                    Sim, excluir todos os meus dados
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 style={{ color: 'var(--color-danger-strong)', marginBottom: '10px' }}>
+                  Confirme sua senha
+                </h3>
+                <p style={{ color: 'var(--color-text-main)', marginBottom: '16px', fontSize: '15px' }}>
+                  Digite sua senha atual pra excluir a conta definitivamente.
+                </p>
+
+                <input
+                  style={{ ...inputStyle, marginBottom: '18px', border: 'var(--border-width-base) solid var(--color-danger-pure)' }}
+                  type="password"
+                  placeholder="Senha"
+                  value={senhaConfirmacaoDelete}
+                  onChange={(e) => setSenhaConfirmacaoDelete(e.target.value)}
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <button style={modalCancelButtonStyle} onClick={fecharModalExcluir}>
+                    Cancelar
+                  </button>
+                  <button
+                    style={{ ...modalConfirmButtonStyle, backgroundColor: 'var(--color-danger-pure)' }}
+                    onClick={handleDeleteAccount}
+                    disabled={loading}
+                  >
+                    {loading ? 'Excluindo...' : 'Excluir conta'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       <div style={{ ...cardStyle, ...fadeStyle(contentVisible) }}>
         <h1 style={{ color: 'var(--color-primary)' }}>Meu Perfil</h1>
 
@@ -199,7 +280,7 @@ export default function Perfil() {
         </div>
 
         {/* VIEW */}
-        {!isEditing && !isDeletingAccount && (
+        {!isEditing && (
           <>
             <div style={infoBox}>
               <p><b>Nome:</b> {usuario.nome}</p>
@@ -214,7 +295,7 @@ export default function Perfil() {
               Sair
             </button>
 
-            <p style={danger} onClick={() => setIsDeletingAccount(true)}>
+            <p style={danger} onClick={handleDeleteAccountClick}>
               Deletar conta
             </p>
           </>
@@ -313,31 +394,6 @@ export default function Perfil() {
           </>
         )}
 
-        {/* DELETE */}
-        {isDeletingAccount && (
-          <>
-            <input
-              style={{ ...inputStyle, border: 'var(--border-width-base) solid var(--color-danger-pure)' }}
-              type="password"
-              placeholder="Senha"
-              value={senhaConfirmacaoDelete}
-              onChange={(e) => setSenhaConfirmacaoDelete(e.target.value)}
-            />
-
-            <button
-              style={{ ...buttonStyle, backgroundColor: 'var(--color-danger-pure)' }}
-              onClick={handleDeleteAccount}
-              disabled={loading}
-            >
-              {loading ? 'Excluindo...' : 'Excluir conta'}
-            </button>
-
-            <p style={link} onClick={() => setIsDeletingAccount(false)}>
-              Cancelar
-            </p>
-          </>
-        )}
-
         <p style={{ ...link, marginTop: 20, display: 'block' }} onClick={() => navigateAnimated('/', { expand: false })}>
           Voltar ao menu
         </p>
@@ -347,6 +403,49 @@ export default function Perfil() {
 }
 
 /* ===== STYLE ===== */
+
+// Mesmo visual do CustomModal genérico (overlay + caixa) — replicado aqui
+// porque o popup de exclusão de conta tem duas etapas (confirmação e depois
+// campo de senha), o que o CustomModal não suporta.
+const modalOverlayStyle = {
+  position: 'fixed',
+  inset: 0,
+  backgroundColor: 'var(--color-overlay-modal)',
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  zIndex: 1000
+};
+
+const modalBoxStyle = {
+  backgroundColor: 'var(--color-bg-card)',
+  padding: '24px',
+  borderRadius: '16px',
+  width: '100%',
+  maxWidth: '380px',
+  boxShadow: '0 10px 25px var(--shadow-note-default)',
+  textAlign: 'left'
+};
+
+const modalConfirmButtonStyle = {
+  padding: '10px 20px',
+  color: 'var(--color-text-on-primary)',
+  border: 'none',
+  borderRadius: '8px',
+  cursor: 'pointer',
+  fontWeight: 'bold'
+};
+
+const modalCancelButtonStyle = {
+  padding: '10px 20px',
+  backgroundColor: 'var(--color-border-alt)',
+  color: 'var(--color-text-main)',
+  border: 'none',
+  borderRadius: '8px',
+  cursor: 'pointer',
+  fontWeight: 'bold'
+};
+
 const pageStyle = {
   position: 'fixed',
   inset: 0,

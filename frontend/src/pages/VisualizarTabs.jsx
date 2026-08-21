@@ -168,6 +168,7 @@ Pleased the Lord
         message={modalConfig.message}
         type={modalConfig.type}
         onConfirm={modalConfig.onConfirm}
+        confirmLabel={modalConfig.confirmLabel}
         onClose={closeModal}
       />
       <TopBar expanded={expanded} navigateAnimated={navigateAnimated} />
