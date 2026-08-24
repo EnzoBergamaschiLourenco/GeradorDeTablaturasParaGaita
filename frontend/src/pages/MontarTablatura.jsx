@@ -65,6 +65,8 @@ export default function MontarTablatura() {
   const { usuario } = useAuthUser();
 
   const [linhasLetra, setLinhasLetra] = useState([]);
+  const [dragOverInfo, setDragOverInfo] = useState(null);
+  const [draggingIds, setDraggingIds] = useState([]);
   const [mostrarPreview, setMostrarPreview] = useState(false);
 
   const [user, setUser] = useState(null);
@@ -242,7 +244,7 @@ export default function MontarTablatura() {
     if (configAplicada.tipo && configAplicada.tom) {
       togglePlayAll(partesAdicionadas.map(p => p.id), midiSelecionado?.path, volumes);
     }
-    else {showAlert("Por favor, selecione o Tipo e o Tom da gaita e aplique as configurações.", "Aviso", "warning");}
+    else { showAlert("Por favor, selecione o Tipo e o Tom da gaita e aplique as configurações.", "Aviso", "warning"); }
   };
 
   useEffect(() => {
@@ -565,37 +567,229 @@ export default function MontarTablatura() {
       setNotasSelecionadas([nota.id]);
     }
     e.dataTransfer.setData('notasIds', JSON.stringify(idsToDrag));
+    setTimeout(() => setDraggingIds(idsToDrag), 0);
   };
 
-  const handleDragOver = (e) => { e.preventDefault(); };
+  // Encontra a posição de inserção levando em consideração tanto X quanto Y.
+  // Isso é necessário porque os cards podem ocupar várias linhas visuais
+  // dentro da mesma zonaDrop.
+  const calcularPosicaoDrop = (container, clientX, clientY, idsIgnorados) => {
+    const cardElements = Array.from(
+      container.querySelectorAll('[data-nota-id]')
+    ).filter(el => {
+      const notaId = el.getAttribute('data-nota-id');
+      if (idsIgnorados.includes(notaId)) return false;
+      if (el.style.display === 'none') return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+
+    if (cardElements.length === 0) {
+      return {
+        targetNotaId: null,
+        isAfterLast: true
+      };
+    }
+
+    const linhasVisuais = [];
+
+    cardElements.forEach(el => {
+      const rect = el.getBoundingClientRect();
+      let linha = linhasVisuais.find(l =>
+        Math.abs(l.top - rect.top) < 5
+      );
+      if (!linha) {
+        linha = {
+          top: rect.top,
+          bottom: rect.bottom,
+          cards: []
+        };
+
+        linhasVisuais.push(linha);
+      }
+      linha.cards.push({
+        el,
+        rect,
+        notaId: el.getAttribute('data-nota-id')
+      });
+      linha.bottom = Math.max(linha.bottom, rect.bottom);
+    });
+
+    linhasVisuais.sort((a, b) => a.top - b.top);
+
+    linhasVisuais.forEach(linha => {
+      linha.cards.sort((a, b) => a.rect.left - b.rect.left);
+    });
+
+    let linhaSelecionada = linhasVisuais.find(linha =>
+      clientY >= linha.top &&
+      clientY <= linha.bottom
+    );
+
+    if (!linhaSelecionada) {
+      linhaSelecionada = linhasVisuais.reduce((maisProxima, linha) => {
+        const distancia =
+          clientY < linha.top
+            ? linha.top - clientY
+            : clientY - linha.bottom;
+
+        const distanciaAtual =
+          clientY < maisProxima.top
+            ? maisProxima.top - clientY
+            : clientY - maisProxima.bottom;
+
+        return distancia < distanciaAtual ? linha : maisProxima;
+      });
+    }
+
+    const indiceLinha = linhasVisuais.indexOf(linhaSelecionada);
+    const ultimaLinha = indiceLinha === linhasVisuais.length - 1;
+    const cardAntesDoMouse = linhaSelecionada.cards.find(card => {
+      const centerX = card.rect.left + card.rect.width / 2;
+      return clientX < centerX;
+    });
+
+    if (cardAntesDoMouse) {
+      return {
+        targetNotaId: cardAntesDoMouse.notaId,
+        isAfterLast: false
+      };
+    }
+
+    if (!ultimaLinha) {
+      const proximaLinha = linhasVisuais[indiceLinha + 1];
+
+      if (proximaLinha && proximaLinha.cards.length > 0) {
+        return {
+          targetNotaId: proximaLinha.cards[0].notaId,
+          isAfterLast: false
+        };
+      }
+    }
+
+    return {
+      targetNotaId: null,
+      isAfterLast: true
+    };
+  };
+
+  const handleDragOverLinha = (e, linhaIndex) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const container = e.currentTarget;
+
+    const resultado = calcularPosicaoDrop(
+      container,
+      e.clientX,
+      e.clientY,
+      draggingIds
+    );
+
+    setDragOverInfo(prev => {
+      if (
+        prev &&
+        prev.linhaIndex === linhaIndex &&
+        prev.targetNotaId === resultado.targetNotaId &&
+        prev.isAfterLast === resultado.isAfterLast
+      ) {
+        return prev;
+      }
+
+      return {
+        linhaIndex,
+        targetNotaId: resultado.targetNotaId,
+        isAfterLast: resultado.isAfterLast
+      };
+    });
+  };
+
 
   const handleDrop = (e, columnLinhaIndex) => {
     e.preventDefault();
+    e.stopPropagation();
     const notasIdsStr = e.dataTransfer.getData('notasIds');
     if (!notasIdsStr) return;
     const notasIds = JSON.parse(notasIdsStr);
-
-    const notasParaAdicionar = [];
+    const container = e.currentTarget;
+    const {
+      targetNotaId,
+      isAfterLast
+    } = calcularPosicaoDrop(
+      container,
+      e.clientX,
+      e.clientY,
+      notasIds
+    );
+    setDragOverInfo(null);
+    setDraggingIds([]);
+    const notasParaInserir = [];
 
     Object.keys(notasPorParte).forEach(chave => {
       notasPorParte[chave].forEach(n => {
-        if (notasIds.includes(n.id) && !notasAlocadasSet.has(n.id)) {
-          notasParaAdicionar.push(n);
+        if (
+          notasIds.includes(n.id) &&
+          !notasParaInserir.find(x => x.id === n.id)
+        ) {
+          notasParaInserir.push(n);
         }
       });
     });
 
-    if (notasParaAdicionar.length > 0) {
-      setLinhasLetra(prev => {
-        const novasLinhas = [...prev];
-        novasLinhas[columnLinhaIndex] = {
-          ...novasLinhas[columnLinhaIndex],
-          notas: [...novasLinhas[columnLinhaIndex].notas, ...notasParaAdicionar]
-        };
-        return novasLinhas;
+    linhasLetra.forEach(linha => {
+      linha.notas.forEach(n => {
+        if (
+          notasIds.includes(n.id) &&
+          !notasParaInserir.find(x => x.id === n.id)
+        ) {
+          notasParaInserir.push(n);
+        }
       });
-      setNotasSelecionadas([]);
-    }
+    });
+
+    if (notasParaInserir.length === 0) return;
+
+    notasParaInserir.sort(
+      (a, b) => notasIds.indexOf(a.id) - notasIds.indexOf(b.id)
+    );
+
+    setLinhasLetra(prev => {
+      const novasLinhas = prev.map(l => ({
+        ...l,
+        notas: [...l.notas]
+      }));
+
+      novasLinhas.forEach(linha => {
+        linha.notas = linha.notas.filter(
+          n => !notasIds.includes(n.id)
+        );
+      });
+      const linhaDestino = novasLinhas[columnLinhaIndex];
+      if (!linhaDestino) {
+        return novasLinhas;
+      }
+      let targetIndex = linhaDestino.notas.length;
+      if (!isAfterLast && targetNotaId) {
+        const foundIdx = linhaDestino.notas.findIndex(
+          n => n.id === targetNotaId
+        );
+        if (foundIdx !== -1) {
+          targetIndex = foundIdx;
+        }
+      }
+      linhaDestino.notas.splice(
+        targetIndex,
+        0,
+        ...notasParaInserir
+      );
+      return novasLinhas;
+    });
+    setNotasSelecionadas([]);
+  };
+
+  const handleDragEndGlobal = () => {
+    setDragOverInfo(null);
+    setDraggingIds([]);
   };
 
   const removerNotaDaLinha = (linhaIndex, notaId) => {
@@ -1083,13 +1277,51 @@ export default function MontarTablatura() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', paddingBottom: '30px' }}>
               {linhasLetra.map((linha, index) => (
                 <div key={linha.id} style={s.linhaContainer}>
-                  <div style={s.zonaDrop} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, index)}>
+                  <div
+                    style={s.zonaDrop}
+                    onDragOver={(e) => handleDragOverLinha(e, index)}
+                    onDrop={(e) => handleDrop(e, index)}
+                  >
                     {linha.notas.length === 0 && <span style={{ color: 'var(--color-border-soft)', fontSize: '12px' }}>Solte notas aqui...</span>}
-                    {linha.notas.map(nota => (
-                      <div key={nota.id} style={s.cardNotaAlocada} onClick={() => removerNotaDaLinha(index, nota.id)} title="Clique para remover">
+
+                    {linha.notas.map((nota, notaIndex) => [
+                      // PREVIEW: Agora atrelado ao ID do card exato, fugindo da discrepância de índices
+                      dragOverInfo?.linhaIndex === index && dragOverInfo?.targetNotaId === nota.id && !dragOverInfo?.isAfterLast && (
+                        (draggingIds.length > 0 ? draggingIds : [1]).map((dragId, idx) => (
+                          <div key={`preview-${nota.id}-${idx}`} style={{ ...s.cardNotaAlocada, opacity: 0.5, border: '2px dashed var(--color-primary)', backgroundColor: 'transparent', color: 'transparent', pointerEvents: 'none' }}>+</div>
+                        ))
+                      ),
+                      // CARD REAL
+                      <div
+                        key={nota.id}
+                        data-nota-id={nota.id}
+                        style={{
+                          ...s.cardNotaAlocada,
+                          cursor: 'grab',
+                          display: draggingIds.includes(nota.id) ? 'none' : 'flex'
+                        }}
+                        onClick={() => removerNotaDaLinha(index, nota.id)}
+                        title="Clique para remover. Arraste para reordenar."
+                        draggable
+                        onDragStart={(e) => {
+                          const idsToDrag = [nota.id];
+                          e.dataTransfer.setData('notasIds', JSON.stringify(idsToDrag));
+                          e.stopPropagation();
+                          setTimeout(() => setDraggingIds(idsToDrag), 0);
+                        }}
+                        onDragEnd={handleDragEndGlobal}
+                      >
                         {nota.valor}
                       </div>
-                    ))}
+                    ])}
+
+                    {/* PREVIEW no final da linha */}
+                    {dragOverInfo?.linhaIndex === index && dragOverInfo?.isAfterLast && (
+                      (draggingIds.length > 0 ? draggingIds : [1]).map((dragId, idx) => (
+                        <div key={`preview-end-${idx}`} style={{ ...s.cardNotaAlocada, opacity: 0.5, border: '2px dashed var(--color-primary)', backgroundColor: 'transparent', color: 'transparent', pointerEvents: 'none' }}>+</div>
+                      ))
+                    )}
+
                     <input type="text" placeholder="+" style={s.inputNotaManual} onKeyDown={(e) => handleAdicionarNotaManual(e, index)} />
                   </div>
                   <div style={s.textoLetra}>{linha.texto || <span style={{ color: 'var(--color-border-soft)', fontStyle: 'italic' }}>[Linha vazia]</span>}</div>
