@@ -273,12 +273,9 @@ export function useMidiPlayer() {
       return;
     }
     try {
-      playerRef.current.seekTo(seekTime);
-      playerRef.current.resume();
-
-      // Força a velocidade logo após retomar do pause
+      playerRef.current.stop();
+      playerRef.current.start(sequenceRef.current, undefined, seekTime).catch(e => console.error(e));
       playerRef.current.setTempo(baseTempoRef.current * playbackSpeedRef.current);
-
     } catch (e) {
       console.warn('Falha ao retomar, recriando player');
       playerRef.current.stop();
@@ -328,10 +325,11 @@ export function useMidiPlayer() {
 
     if (isPlayingRef.current && playerRef.current) {
       try {
-        playerRef.current.seekTo(targetTime);
+        playerRef.current.stop();
+        playerRef.current.start(sequenceRef.current, undefined, targetTime).catch(e => console.error(e));
         playerRef.current.setTempo(baseTempoRef.current * playbackSpeedRef.current);
       } catch (e) {
-        console.warn('seekTo falhou, recriando player');
+        console.warn('seek falhou, recriando player');
         recreatePlayerAtTime(targetTime, true);
         return;
       }
