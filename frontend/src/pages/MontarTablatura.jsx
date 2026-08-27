@@ -15,7 +15,7 @@ import { buscarPartesMidi, traduzirTablatura } from '../services/gaitaApiService
 
 // ================= COMPONENTE PRINCIPAL =================
 export default function MontarTablatura() {
-  const { modalConfig, showAlert, closeModal } = useModal();
+  const { modalConfig, showAlert, showConfirm, closeModal } = useModal();
 
   const [notaAvaliacao, setNotaAvaliacao] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -68,6 +68,9 @@ export default function MontarTablatura() {
   const [dragOverInfo, setDragOverInfo] = useState(null);
   const [draggingIds, setDraggingIds] = useState([]);
   const [mostrarPreview, setMostrarPreview] = useState(false);
+  const [hoveredLinhaIndex, setHoveredLinhaIndex] = useState(null);
+  const [editingLinhaIndex, setEditingLinhaIndex] = useState(null);
+  const [editingText, setEditingText] = useState("");
 
   const [user, setUser] = useState(null);
   useEffect(() => {
@@ -818,6 +821,35 @@ export default function MontarTablatura() {
     }
   };
 
+  const handleEditLinha = (index, currentText) => {
+    setEditingLinhaIndex(index);
+    setEditingText(currentText);
+  };
+
+  const salvarEdicaoLinha = (index) => {
+    setLinhasLetra(prev => {
+      const novasLinhas = [...prev];
+      novasLinhas[index] = { ...novasLinhas[index], texto: editingText };
+      return novasLinhas;
+    });
+    setEditingLinhaIndex(null);
+  };
+
+  const adicionarLinhaAbaixo = (index) => {
+    setLinhasLetra(prev => {
+      const novasLinhas = [...prev];
+      novasLinhas.splice(index + 1, 0, {
+        id: `linha-adicional-${Date.now()}`,
+        texto: '',
+        notas: []
+      });
+      return novasLinhas;
+    });
+  };
+
+  const deletarLinha = (index) => {
+    setLinhasLetra(prev => prev.filter((_, i) => i !== index));
+  };
   // ================= Buscar tons da gaita baseado no tipo selecionado =================
 
   useEffect(() => {
@@ -1324,7 +1356,66 @@ export default function MontarTablatura() {
 
                     <input type="text" placeholder="+" style={s.inputNotaManual} onKeyDown={(e) => handleAdicionarNotaManual(e, index)} />
                   </div>
-                  <div style={s.textoLetra}>{linha.texto || <span style={{ color: 'var(--color-border-soft)', fontStyle: 'italic' }}>[Linha vazia]</span>}</div>
+                  <div
+                    style={{ ...s.textoLetra, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '32px' }}
+                    onMouseEnter={() => setHoveredLinhaIndex(index)}
+                    onMouseLeave={() => setHoveredLinhaIndex(null)}
+                  >
+                    {editingLinhaIndex === index ? (
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', justifyContent: 'center' }}>
+                        <input
+                          type="text"
+                          value={editingText}
+                          onChange={(e) => setEditingText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') salvarEdicaoLinha(index);
+                            if (e.key === 'Escape') setEditingLinhaIndex(null);
+                          }}
+                          style={{ ...s.inputStyle, padding: '4px 8px', margin: 0, width: '80%' }}
+                          autoFocus
+                        />
+                        <button onClick={() => salvarEdicaoLinha(index)} style={{ cursor: 'pointer', background: 'none', border: 'none', fontSize: '16px' }}>✅</button>
+                        <button onClick={() => setEditingLinhaIndex(null)} style={{ cursor: 'pointer', background: 'none', border: 'none', fontSize: '16px' }}>❌</button>
+                      </div>
+                    ) : (
+                      <>
+                        <span>{linha.texto || <span style={{ color: 'var(--color-border-soft)', fontStyle: 'italic' }}>[Linha vazia]</span>}</span>
+
+                        {hoveredLinhaIndex === index && (
+                          <div style={{ position: 'absolute', right: '10px', display: 'flex', gap: '8px' }}>
+                            <button
+                              onClick={() => handleEditLinha(index, linha.texto)}
+                              style={{ cursor: 'pointer', background: 'var(--color-bg-card)', border: '1px solid var(--color-border-soft)', borderRadius: '4px', padding: '4px' }}
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              onClick={() => adicionarLinhaAbaixo(index)}
+                              style={{ cursor: 'pointer', background: 'var(--color-bg-card)', border: '1px solid var(--color-border-soft)', borderRadius: '4px', padding: '4px' }}
+                            >
+                              ➕
+                            </button>
+                            <button
+                              onClick={() => {
+                                showConfirm('Deletar a linha e todos os posicionamentos de comandos de gaita nela?', {
+                                  title: 'Deletar linha?',
+                                  type: 'warning',
+                                  onConfirm: () => {
+                                    deletarLinha(index);
+                                    closeModal();
+                                  }
+                                });
+                              }}
+                              title="Excluir linha"
+                              style={{ cursor: 'pointer', background: 'var(--color-bg-card)', border: '1px solid var(--color-border-soft)', borderRadius: '4px', padding: '4px' }}
+                            >
+                              ✖️
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
