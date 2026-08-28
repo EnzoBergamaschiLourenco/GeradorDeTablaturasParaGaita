@@ -1,18 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import CustomModal from '../components/CustomModal';
+import TablaturaView from '../components/TablaturaView';
 import TopBar, { TOPBAR_CLEARANCE } from '../components/TopBar';
 import { useAnimatedNavigate, fadeStyle } from '../hooks/useAnimatedNavigate';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
+import { useCarregamentoMinimo, usePontinhos } from '../hooks/useCarregamento';
 import {
   contarCurtidas,
   usuarioCurtiu,
   removerCurtida,
   adicionarCurtida,
   atualizarTextoTablatura,
-  excluirTablatura
+  excluirTablatura,
+  buscarTablaturaPorId
 } from '../services/tablaturaService';
+import { pareceLinhaDeNotas } from '../utils/tablatura';
 
 export default function VisualizarTabs() {
   const { modalConfig, showAlert, showConfirm, closeModal } = useModal();
@@ -20,6 +24,17 @@ export default function VisualizarTabs() {
   const { expanded, contentVisible, navigateAnimated } = useAnimatedNavigate(true);
   const location = useLocation();
   const tabRecebida = location.state?.tab;
+
+  // Link compartilhável: /VisualizarTabs?id=123 abre a tela sem passar pelo
+  // state de navegação — nesse caso a tablatura é buscada no banco pelo id.
+  const idDaUrl = new URLSearchParams(location.search).get('id');
+  const [tabCarregada, setTabCarregada] = useState(null);
+  const [carregandoPorId, setCarregandoPorId] = useState(Boolean(idDaUrl && !tabRecebida));
+  const [linkCopiado, setLinkCopiado] = useState(false);
+
+  // Tela de "Carregando" respeita o tempo mínimo pra não piscar; "..." animado.
+  const carregandoTabMin = useCarregamentoMinimo(carregandoPorId);
+  const pontinhos = usePontinhos(carregandoTabMin);
 
   const { usuario } = useAuthUser();
   const [curtido, setCurtido] = useState(false);
@@ -30,20 +45,29 @@ export default function VisualizarTabs() {
   const [textoTablatura, setTextoTablatura] = useState('');
   const [salvando, setSalvando] = useState(false);
 
+  // Modo tela cheia da área da tablatura (mesma ideia do "maximizar" das
+  // Partes Ativas na tela de montar tablatura).
+  const [tablaturaMaximizada, setTablaturaMaximizada] = useState(false);
+
+  // Fonte dos dados: o que veio na navegação, ou o que foi buscado pelo id da URL.
+  const tab = tabRecebida || tabCarregada;
+
   // Fallback e Mapeamento
   const tabData = {
-    id: tabRecebida?.id || null,
-    usuario_id: tabRecebida?.usuario_id || null,
-    criador: tabRecebida?.autor_tab || tabRecebida?.usuarios?.nome || "João da Gaita",
-    musica: tabRecebida?.nome_musica || tabRecebida?.musicas?.nome || "Hallelujah",
-    autorMusica: tabRecebida?.autor_musica || tabRecebida?.musicas?.autor || "Leonard Cohen",
-    midiUtilizado: tabRecebida?.midi_utilizado || tabRecebida?.arquivos_midi?.arquivo_midi || "Sem MIDI",
-    tomGaita: tabRecebida?.tom_gaita || tabRecebida?.layouts_gaita?.tom || "C",
-    tipoGaita: tabRecebida?.tipo_gaita || tabRecebida?.layouts_gaita?.tipo || "Diatônica",
-    dataCriacao: tabRecebida?.created_at ? new Date(tabRecebida.created_at).toLocaleDateString() : "01/01/2026",
-    conteudoOriginal: tabRecebida?.conteudo || tabRecebida?.tablatura || `
+    id: tab?.id || null,
+    usuario_id: tab?.usuario_id || null,
+    criador: tab?.autor_tab || tab?.usuarios?.nome || "João da Gaita",
+    musica: tab?.nome_musica || tab?.musicas?.nome || "Hallelujah",
+    autorMusica: tab?.autor_musica || tab?.musicas?.autor || "Leonard Cohen",
+    midiUtilizado: tab?.midi_utilizado || tab?.arquivos_midi?.arquivo_midi || "Sem MIDI",
+    tomGaita: tab?.tom_gaita || tab?.layouts_gaita?.tom || "C",
+    tipoGaita: tab?.tipo_gaita || tab?.layouts_gaita?.tipo || "Diatônica",
+    dataCriacao: tab?.created_at
+      ? new Date(tab.created_at).toLocaleDateString()
+      : (tab?.data ? new Date(tab.data).toLocaleDateString() : "01/01/2026"),
+    conteudoOriginal: tab?.conteudo || tab?.tablatura || `
 +5   -5   -5   -5   -5   +5
-That Da-vid played and it 
+That Da-vid played and it
 
   +5     -4    -4
 Pleased the Lord
@@ -52,9 +76,90 @@ Pleased the Lord
 
   const isOwner = usuario && tabData.usuario_id && usuario.id === tabData.usuario_id;
 
+  // Quando aberto por link (?id=), busca a tablatura no banco. O estado de
+  // "carregando" já nasce true pelo useState acima nesse cenário.
   useEffect(() => {
-    setTextoTablatura(tabData.conteudoOriginal);
-  }, []);
+    if (tabRecebida || !idDaUrl) return;
+    let ativo = true;
+    buscarTablaturaPorId(idDaUrl)
+      .then(({ data }) => { if (ativo) setTabCarregada(data || null); })
+      .finally(() => { if (ativo) setCarregandoPorId(false); });
+    return () => { ativo = false; };
+  }, [idDaUrl, tabRecebida]);
+
+  // Deixa a URL como link compartilhável (?id=<id>) mesmo quando a tela foi
+  // aberta pela navegação interna (que passa a tablatura pelo state, sem id
+  // na URL). Assim, copiar a URL da barra já compartilha corretamente.
+  // Usa replaceState pra não recarregar nem perder o state atual.
+  useEffect(() => {
+    const id = tabData.id;
+    if (!id) return;
+    const jaTem = new URLSearchParams(window.location.search).get('id');
+    if (jaTem === String(id)) return;
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${window.location.pathname}?id=${id}`
+    );
+  }, [tabData.id]);
+
+  useEffect(() => {
+    if (!editando) setTextoTablatura(tabData.conteudoOriginal);
+  }, [tabData.conteudoOriginal]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Esc fecha o modo tela cheia da tablatura.
+  useEffect(() => {
+    if (!tablaturaMaximizada) return;
+    const onKey = (e) => { if (e.key === 'Escape') setTablaturaMaximizada(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [tablaturaMaximizada]);
+
+  // Conteúdo da tablatura (edição ou leitura), reaproveitado no card normal
+  // e no overlay de tela cheia.
+  const conteudoTablatura = editando ? (
+    <textarea
+      value={textoTablatura}
+      onChange={(e) => setTextoTablatura(e.target.value)}
+      style={{
+        flex: 1,
+        padding: '20px',
+        border: 'none',
+        outline: 'none',
+        backgroundColor: 'transparent', // fundo transparente (herda o amarelado)
+        fontFamily: 'monospace',
+        fontSize: '18px',
+        resize: 'none',
+        lineHeight: '1.6',
+        color: 'var(--color-text-main)'
+      }}
+    />
+  ) : (
+    <div
+      style={{
+        flex: 1,
+        padding: '20px',
+        overflowY: 'auto'
+      }}
+    >
+      <TablaturaView conteudo={textoTablatura} />
+    </div>
+  );
+
+  const btnIconeStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '28px',
+    height: '28px',
+    padding: 0,
+    backgroundColor: 'var(--color-border-alt)',
+    color: 'var(--color-text-muted)',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    flexShrink: 0
+  };
 
   // Busca o status de curtida e o total atualizado no banco ao carregar
   useEffect(() => {
@@ -149,6 +254,134 @@ Pleased the Lord
     });
   };
 
+  // Copia um link direto pra esta tablatura (/VisualizarTabs?id=<id>).
+  const handleCopiarLink = async () => {
+    if (!tabData.id) {
+      showAlert("Abra a tablatura pelo site (pela busca ou logo após criá-la) para gerar um link compartilhável.");
+      return;
+    }
+    const link = `${window.location.origin}/VisualizarTabs?id=${tabData.id}`;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(link);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = link;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      }
+      setLinkCopiado(true);
+      setTimeout(() => setLinkCopiado(false), 2000);
+    } catch {
+      showAlert(`Não consegui copiar automaticamente. Link:\n${link}`);
+    }
+  };
+
+  // Monta os dados de exportação: título, lista de detalhes disponíveis,
+  // conteúdo das notas e um nome de arquivo.
+  const montarConteudoExport = () => {
+    const SEM_VALOR = ['', 'Sem MIDI', 'Nenhum', 'N/A', '-'];
+    const detalhes = [];
+    const add = (rotulo, valor) => {
+      const v = (valor ?? '').toString().trim();
+      if (v && !SEM_VALOR.includes(v)) detalhes.push({ rotulo, valor: v });
+    };
+
+    add('Autor da Música', tabData.autorMusica);
+    add('Autor da Tab', tabData.criador);
+    add('MIDI Utilizado', tabData.midiUtilizado);
+    if ((tabData.tomGaita || '').trim() || (tabData.tipoGaita || '').trim()) {
+      detalhes.push({ rotulo: 'Tom / Tipo', valor: `Gaita ${tabData.tomGaita || '?'} (${tabData.tipoGaita || '?'})` });
+    }
+    add('Data de Criação', tabData.dataCriacao);
+
+    const nomeBase = `${tabData.musica || 'tablatura'}${tabData.criador ? ' - ' + tabData.criador : ''}`
+      .replace(/[^\p{L}\p{N}_ -]/gu, '')
+      .trim()
+      .replace(/\s+/g, '_') || 'tablatura';
+
+    return {
+      titulo: tabData.musica || 'Tablatura',
+      detalhes,
+      notas: (textoTablatura || '').replace(/\r\n/g, '\n').trim(),
+      nomeBase
+    };
+  };
+
+  // Exporta como .pdf usando a impressão do navegador: monta uma página
+  // limpa num iframe oculto e dispara o print (o usuário escolhe
+  // "Salvar como PDF" no diálogo). Sem dependência externa.
+  const handleExportarPdf = () => {
+    const { titulo, detalhes, notas, nomeBase } = montarConteudoExport();
+    const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+    // Mesmo esquema da tela: linha de notas em destaque (negrito) e linha de
+    // letra com uma leve transparência.
+    const linhasTab = notas
+      .split('\n')
+      .map((l) => {
+        if (l.trim() === '') return '<div class="linha">&nbsp;</div>';
+        const classe = pareceLinhaDeNotas(l) ? 'nota' : 'letra';
+        return `<div class="linha ${classe}">${esc(l)}</div>`;
+      })
+      .join('');
+
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(nomeBase)}</title>
+<style>
+  @page { margin: 20mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; margin: 0; }
+  h1 { font-size: 20pt; margin: 0 0 6pt; }
+  hr { border: 0; border-top: 1pt solid #000; margin: 10pt 0; }
+  .detalhes p { margin: 2pt 0; font-size: 11pt; }
+  .tab { font-family: "Courier New", Courier, monospace; font-size: 12.5pt; line-height: 1.55; }
+  .tab .linha { white-space: pre-wrap; word-break: break-word; }
+  .tab .nota { font-weight: bold; }
+  .tab .letra { opacity: 0.78; }
+</style></head><body>
+  <h1>${esc(titulo)}</h1>
+  <hr>
+  <div class="detalhes">${detalhes.map((d) => `<p><strong>${esc(d.rotulo)}:</strong> ${esc(d.valor)}</p>`).join('')}</div>
+  <hr>
+  <div class="tab">${linhasTab}</div>
+</body></html>`;
+
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    iframe.onload = () => {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } finally {
+        setTimeout(() => iframe.remove(), 1000);
+      }
+    };
+    iframe.srcdoc = html;
+    document.body.appendChild(iframe);
+  };
+
+  // Aberto por link (?id=): tela de carregando (tempo mínimo) e de "não encontrada",
+  // pra não cair no fallback de exemplo nem piscar.
+  if (idDaUrl && !tabRecebida && (carregandoTabMin || !tabCarregada)) {
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        backgroundColor: 'var(--color-bg-page)', color: 'var(--color-text-muted)',
+        fontFamily: 'Arial, sans-serif', fontSize: '18px'
+      }}>
+        <TopBar expanded={expanded} navigateAnimated={navigateAnimated} />
+        {carregandoTabMin
+          ? <>Carregando tablatura<span style={{ display: 'inline-block', width: '1.4em', textAlign: 'left' }}>{pontinhos}</span></>
+          : 'Tablatura não encontrada.'}
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -173,15 +406,20 @@ Pleased the Lord
       />
       <TopBar expanded={expanded} navigateAnimated={navigateAnimated} />
       {/* COLUNA DA ESQUERDA (Texto da Tablatura) */}
+      {/* Espaçamentos referenciados na barra de menu: 20px do topo (respiro
+          embaixo da barra, já embutido no TOPBAR_CLEARANCE), 20px das bordas
+          e da base, 20px entre os dois retângulos (10 + 10 nas laterais
+          internas). */}
       <div
         style={{
           width: '50%',
           height: '100%',
           display: 'flex',
-          justifyContent: 'center',
+          justifyContent: 'flex-end',
           alignItems: 'center',
-          padding: '20px', // ajustado para ocupar melhor o espaço
+          padding: '20px',
           paddingTop: `${TOPBAR_CLEARANCE}px`,
+          paddingRight: '10px',
           boxSizing: 'border-box',
           backgroundColor: 'var(--color-bg-page)',
           ...fadeStyle(contentVisible)
@@ -189,8 +427,8 @@ Pleased the Lord
       >
         <div style={{
           width: '100%',
-          height: '80%',
-          maxWidth: '90%', // aumentado para melhor aproveitamento
+          height: '100%',
+          maxWidth: '820px',
           backgroundColor: 'var(--color-bg-paper)',
           borderRadius: '16px',
           border: 'var(--border-width-base) solid var(--color-border-paper)',
@@ -199,40 +437,25 @@ Pleased the Lord
           flexDirection: 'column',
           overflow: 'hidden' // para garantir que o conteúdo não vaze
         }}>
-          {/* Área de Texto - sem cabeçalho */}
-          {editando ? (
-            <textarea
-              value={textoTablatura}
-              onChange={(e) => setTextoTablatura(e.target.value)}
-              style={{
-                flex: 1,
-                padding: '20px',
-                border: 'none',
-                outline: 'none',
-                backgroundColor: 'transparent', // fundo transparente (herda o amarelado)
-                fontFamily: 'monospace',
-                fontSize: '18px',
-                resize: 'none',
-                lineHeight: '1.6',
-                color: 'var(--color-text-main)'
-              }}
-            />
-          ) : (
-            <div
-              style={{
-                flex: 1,
-                padding: '20px',
-                overflowY: 'auto',
-                fontFamily: 'monospace',
-                fontSize: '18px',
-                whiteSpace: 'pre-wrap',
-                lineHeight: '1.6',
-                color: 'var(--color-text-main)'
-              }}
+          {/* Cabeçalho enxuto: só o botão de maximizar no canto */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 10px 0' }}>
+            <button
+              type="button"
+              onClick={() => setTablaturaMaximizada(true)}
+              style={btnIconeStyle}
+              title="Maximizar tablatura"
+              aria-label="Maximizar tablatura"
             >
-              {textoTablatura}
-            </div>
-          )}
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 3 21 3 21 9" />
+                <polyline points="9 21 3 21 3 15" />
+                <line x1="21" y1="3" x2="14" y2="10" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+            </button>
+          </div>
+          {/* Quando maximizado, o conteúdo vai pro overlay (evita textarea/estado duplicado) */}
+          {!tablaturaMaximizada && conteudoTablatura}
         </div>
       </div>
 
@@ -241,30 +464,31 @@ Pleased the Lord
         style={{
           width: '50%',
           height: '100%',
-          backgroundColor: 'var(--color-bg-card)',
-          borderLeft: 'var(--border-width-base) solid var(--color-border-alt)',
-          boxSizing: 'border-box',
-          padding: '60px 40px',
-          paddingTop: `${TOPBAR_CLEARANCE}px`,
-          overflowY: 'auto',
           display: 'flex',
-          flexDirection: 'column',
-          // flex-start (em vez de center): com justifyContent:'center' e
-          // overflowY:'auto', quando o card (edição + curtir + botões de
-          // dono) fica mais alto que a coluna, o topo dele nasce inacessível
-          // por scroll — mesmo bug já corrigido no Perfil e no Login.
           justifyContent: 'flex-start',
+          alignItems: 'center',
+          padding: '20px',
+          paddingTop: `${TOPBAR_CLEARANCE}px`,
+          paddingLeft: '10px',
+          boxSizing: 'border-box',
+          backgroundColor: 'var(--color-bg-page)',
+          overflow: 'hidden',
           ...fadeStyle(contentVisible)
         }}
       >
+        {/* O card tem altura fixa e rola por dentro (mesmo padrão do card da
+            esquerda e da tela de Criar Tabs) — o scroll fica dentro do
+            retângulo arredondado, não o retângulo dentro de um scroll. */}
         <div style={{
           width: '100%',
-          maxWidth: '500px',
-          margin: '0 auto',
-          padding: '40px',
+          height: '100%',
+          maxWidth: '620px',
+          padding: '28px 32px',
           borderRadius: '24px',
           boxShadow: '0 15px 40px var(--shadow-card)',
-          backgroundColor: 'var(--color-bg-card)'
+          backgroundColor: 'var(--color-bg-card)',
+          boxSizing: 'border-box',
+          overflowY: 'auto'
         }}>
 
           {/* Topo do Card - Informações */}
@@ -310,6 +534,55 @@ Pleased the Lord
                 {totalCurtidas}
               </span>
             </button>
+
+            {/* Compartilhar e Exportar lado a lado, cada um com metade do espaço */}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={handleCopiarLink}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  padding: '14px',
+                  backgroundColor: linkCopiado ? 'var(--color-bg-liked)' : 'transparent',
+                  color: linkCopiado ? 'var(--color-text-success)' : 'var(--color-text-main)',
+                  border: `2px solid ${linkCopiado ? 'var(--color-border-liked)' : 'var(--color-border)'}`,
+                  cursor: 'pointer',
+                  fontSize: '15px',
+                  fontWeight: 'bold',
+                  borderRadius: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  transition: '0.2s'
+                }}
+              >
+                {linkCopiado ? '✅ Link copiado!' : '🔗 Compartilhar'}
+              </button>
+
+              <button
+                onClick={handleExportarPdf}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  padding: '14px',
+                  backgroundColor: 'transparent',
+                  color: 'var(--color-text-main)',
+                  border: '2px solid var(--color-border)',
+                  cursor: 'pointer',
+                  fontSize: '15px',
+                  fontWeight: 'bold',
+                  borderRadius: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  transition: '0.2s'
+                }}
+              >
+                📄 Exportar
+              </button>
+            </div>
 
             {/* Controles do Dono da Tablatura */}
             {isOwner && (
@@ -375,6 +648,67 @@ Pleased the Lord
           </div>
         </div>
       </div>
+
+      {/* Modo tela cheia da tablatura */}
+      {tablaturaMaximizada && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 500,
+            backgroundColor: 'var(--color-bg-paper)',
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '24px 30px',
+            boxSizing: 'border-box'
+          }}
+        >
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexShrink: 0,
+            marginBottom: '16px',
+            paddingBottom: '16px',
+            borderBottom: 'var(--border-width-base) solid var(--color-border-paper)'
+          }}>
+            <h2 style={{ margin: 0, color: 'var(--color-primary)', fontSize: '24px', fontWeight: 'bold' }}>
+              {tabData.musica}
+            </h2>
+            <button
+              type="button"
+              onClick={() => setTablaturaMaximizada(false)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 14px',
+                backgroundColor: 'var(--color-border-alt)',
+                color: 'var(--color-text-muted)',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                fontSize: '13px'
+              }}
+              title="Voltar ao tamanho padrão"
+              aria-label="Minimizar tablatura"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 14 10 14 10 20" />
+                <polyline points="20 10 14 10 14 4" />
+                <line x1="14" y1="10" x2="21" y2="3" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+              Minimizar
+            </button>
+          </div>
+
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {conteudoTablatura}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

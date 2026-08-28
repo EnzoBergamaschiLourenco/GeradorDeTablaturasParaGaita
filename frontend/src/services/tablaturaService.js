@@ -47,6 +47,29 @@ export async function buscarTablaturas({ nome, autorMusica, autorTab, tom, tipo 
   return query;
 }
 
+// Busca UMA tablatura pelo id, com os mesmos joins da pesquisa — usado pelo
+// link compartilhável (/VisualizarTabs?id=123), que abre a tela sem passar
+// pelo state de navegação.
+export async function buscarTablaturaPorId(id) {
+  return supabase
+    .from('tablaturas')
+    .select(`
+      id,
+      tablatura,
+      data,
+      usuario_id,
+      musica_id,
+      midi_id,
+      gaita_id,
+      musicas ( id, nome, autor ),
+      usuarios ( id, nome ),
+      layouts_gaita ( id, tom, tipo ),
+      arquivos_midi ( id, arquivo_midi )
+    `)
+    .eq('id', id)
+    .maybeSingle();
+}
+
 export async function contarCurtidas(tablaturaId) {
   return supabase
     .from('curtidas')

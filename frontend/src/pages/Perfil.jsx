@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import CustomModal from '../components/CustomModal';
 import TopBar, { TOPBAR_CLEARANCE } from '../components/TopBar';
 import { useAnimatedNavigate, fadeStyle } from '../hooks/useAnimatedNavigate';
+import { useCarregamentoMinimo, usePontinhos } from '../hooks/useCarregamento';
 import {
   hashPassword,
   uploadAvatar,
@@ -17,6 +18,9 @@ export default function Perfil() {
   const { modalConfig, showAlert, showConfirm, closeModal } = useModal();
 
   const [loading, setLoading] = useState(false);
+  // Botões de ação (Salvar / Excluir) respeitam o tempo mínimo com "..." (anti-flash).
+  const carregandoMin = useCarregamentoMinimo(loading);
+  const pontos = usePontinhos(carregandoMin);
   const [isEditing, setIsEditing] = useState(false);
   // isDeletingAccount: se o popup de exclusão de conta está aberto (por
   // cima da tela, não trocando o conteúdo dela). deleteStep controla qual
@@ -248,9 +252,9 @@ export default function Perfil() {
                   <button
                     style={{ ...modalConfirmButtonStyle, backgroundColor: 'var(--color-danger-pure)' }}
                     onClick={handleDeleteAccount}
-                    disabled={loading}
+                    disabled={carregandoMin}
                   >
-                    {loading ? 'Excluindo...' : 'Excluir conta'}
+                    {carregandoMin ? `Excluindo${pontos}` : 'Excluir conta'}
                   </button>
                 </div>
               </>
@@ -383,9 +387,9 @@ export default function Perfil() {
             <button
               style={{ ...buttonStyle, backgroundColor: 'var(--color-success)' }}
               onClick={handleUpdate}
-              disabled={loading}
+              disabled={carregandoMin}
             >
-              {loading ? 'Salvando...' : 'Salvar'}
+              {carregandoMin ? `Salvando${pontos}` : 'Salvar'}
             </button>
 
             <p style={link} onClick={() => setIsEditing(false)}>

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import CustomModal from '../components/CustomModal';
 import TopBar, { TOPBAR_CLEARANCE } from '../components/TopBar';
 import { useAnimatedNavigate, fadeStyle } from '../hooks/useAnimatedNavigate';
+import { useCarregamentoMinimo, usePontinhos } from '../hooks/useCarregamento';
 import { registrarUsuario, buscarUsuarioPorCredenciais } from '../services/authService';
 import { useModal } from '../hooks/useModal';
 
@@ -93,6 +94,9 @@ export default function Login() {
   const isRecovering = modoExibido === 'recover';
 
   const [loading, setLoading] = useState(false);
+  // "Processando" fica no tempo mínimo (CARREGAMENTO_MINIMO_MS) com "..." animado.
+  const processandoMin = useCarregamentoMinimo(loading);
+  const pontosProc = usePontinhos(processandoMin);
   const { expanded, contentVisible, navigateAnimated } = useAnimatedNavigate(true);
 
   const [email, setEmail] = useState('');
@@ -380,11 +384,11 @@ export default function Login() {
 
               <button
                 onClick={handleAuth}
-                disabled={loading}
+                disabled={processandoMin}
                 style={buttonStyle}
               >
-                {loading
-                  ? 'Processando...'
+                {processandoMin
+                  ? `Processando${pontosProc}`
                   : isRegistering
                     ? 'Cadastrar'
                     : 'Entrar'}

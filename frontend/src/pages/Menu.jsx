@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import AnimatedMenuBar, { TOPBAR_CLEARANCE } from '../components/AnimatedMenuBar';
 import { useAnimatedNavigate, CONTENT_FADE_MS } from '../hooks/useAnimatedNavigate';
+import { useCarregamentoMinimo, usePontinhos } from '../hooks/useCarregamento';
 import { buscarTonsPorTipo } from '../services/gaitaLayoutService';
 import { buscarTablaturas } from '../services/tablaturaService';
 
@@ -120,6 +121,9 @@ export default function Menu() {
   const [pesquisaAtiva, setPesquisaAtiva] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [resultados, setResultados] = useState([]);
+  // "Carregando" da lista de resultados respeita o tempo mínimo (anti-flash) + "..."
+  const buscandoMin = useCarregamentoMinimo(carregando);
+  const pontosBusca = usePontinhos(buscandoMin);
 
   // Campos de filtro
   const [filtroNomeMusica, setFiltroNomeMusica] = useState('');
@@ -526,6 +530,22 @@ export default function Menu() {
               )}
             </div>
 
+            {/* Separador "ou" em azul */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                width: '100%',
+                margin: '0 0 15px',
+                color: 'var(--color-primary)'
+              }}
+            >
+              <span style={{ flex: 1, height: '2px', backgroundColor: 'currentColor', opacity: 0.55, borderRadius: '1px' }} />
+              <span style={{ fontWeight: 'bold', fontSize: '14px' }}>ou</span>
+              <span style={{ flex: 1, height: '2px', backgroundColor: 'currentColor', opacity: 0.55, borderRadius: '1px' }} />
+            </div>
+
             {/* Botão Principal */}
             <button
               onClick={irParaCriarTabs}
@@ -825,7 +845,7 @@ export default function Menu() {
               </div>
 
               <div style={{ justifySelf: 'center' }}>
-                {!carregando && resultados.length > 0 && (
+                {!buscandoMin && resultados.length > 0 && (
                   <ControlesPaginacao
                     paginaAtual={paginaSegura}
                     totalPaginas={totalPaginas}
@@ -835,8 +855,11 @@ export default function Menu() {
               </div>
             </div>
 
-            {carregando ? (
-              <p style={{ color: 'var(--color-text-muted)' }}>Carregando tablaturas...</p>
+            {buscandoMin ? (
+              <p style={{ color: 'var(--color-text-muted)' }}>
+                Carregando tablaturas
+                <span style={{ display: 'inline-block', width: '1.4em', textAlign: 'left' }}>{pontosBusca}</span>
+              </p>
             ) : resultados.length === 0 ? (
               <p style={{ color: 'var(--color-text-light)' }}>
                 Nenhuma tablatura encontrada.

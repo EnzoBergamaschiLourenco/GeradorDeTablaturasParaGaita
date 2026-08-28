@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import CustomModal from '../components/CustomModal';
+import { useCarregamentoMinimo, usePontinhos } from '../hooks/useCarregamento';
 import TopBar, { TOPBAR_CLEARANCE } from '../components/TopBar';
 import { useAnimatedNavigate, fadeStyle } from '../hooks/useAnimatedNavigate';
 import { useAuthUser } from '../hooks/useAuthUser';
@@ -14,12 +15,40 @@ import {
   registrarArquivoMidi
 } from '../services/musicaService';
 
+// Ordenação da lista de arquivos MIDI (só na exibição).
+const OPCOES_ORDENACAO_MIDI = [
+  { valor: 'avaliacao_desc', rotulo: 'Mais bem avaliado' },
+  { valor: 'avaliacao_asc', rotulo: 'Menos bem avaliado' },
+  { valor: 'recente_desc', rotulo: 'Mais recente' },
+  { valor: 'recente_asc', rotulo: 'Menos recente' }
+];
+
+// "recência" aproximada pelo id (serial no banco — id maior = adicionado depois).
+function ordenarMidis(lista, criterio) {
+  const copia = [...lista];
+  switch (criterio) {
+    case 'avaliacao_asc':
+      return copia.sort((a, b) => (a.mediaNota || 0) - (b.mediaNota || 0));
+    case 'recente_desc':
+      return copia.sort((a, b) => b.id - a.id);
+    case 'recente_asc':
+      return copia.sort((a, b) => a.id - b.id);
+    case 'avaliacao_desc':
+    default:
+      return copia.sort((a, b) => (b.mediaNota || 0) - (a.mediaNota || 0));
+  }
+}
+
 export default function CriarTabs() {
   const { modalConfig, showAlert, closeModal } = useModal();
 
   const { expanded, contentVisible, navigateAnimated } = useAnimatedNavigate(true);
   const [loading, setLoading] = useState(false);
   const { usuario } = useAuthUser();
+
+  // "Processando" fica no tempo mínimo (CARREGAMENTO_MINIMO_MS) e mostra "..." animado.
+  const processandoMin = useCarregamentoMinimo(loading);
+  const pontosProc = usePontinhos(processandoMin);
 
   const [musica, setMusica] = useState('');
   const [autorMusica, setAutorMusica] = useState('');
@@ -30,7 +59,13 @@ export default function CriarTabs() {
   const [arquivosMidi, setArquivosMidi] = useState([]);
   const [midiSelecionado, setMidiSelecionado] = useState(null);
   const [uploadingMidi, setUploadingMidi] = useState(false);
+  const [ordenacaoMidi, setOrdenacaoMidi] = useState('avaliacao_desc'); // padrão: mais bem avaliado
   const fileInputRef = useRef(null);
+
+  const arquivosMidiOrdenados = useMemo(
+    () => ordenarMidis(arquivosMidi, ordenacaoMidi),
+    [arquivosMidi, ordenacaoMidi]
+  );
 
   const [sugestoes, setSugestoes] = useState([]);
   const debounceRef = useRef(null);
@@ -236,6 +271,16 @@ export default function CriarTabs() {
     }
   };
 
+  // Assim que música + autor estão preenchidos, o retângulo expande e o painel
+  // de MIDI aparece na direita (dentro do mesmo retângulo).
+  const mostrarMidi = Boolean(musica.trim() && autorMusica.trim());
+
+  // Estilo do retângulo memoizado: a página re-renderiza a cada tecla/efeito
+  // com debounce; sem memo, o objeto é recriado toda vez e o React re-aplica o
+  // `transition`, o que pode reiniciar a animação de largura. Referência
+  // estável => a transição roda uma vez só.
+  const estiloShell = useMemo(() => shellCard(mostrarMidi), [mostrarMidi]);
+
   return (
     <div style={pageStyle}>
       <TopBar expanded={expanded} navigateAnimated={navigateAnimated} />
@@ -250,79 +295,109 @@ export default function CriarTabs() {
           confirmLabel={modalConfig.confirmLabel}
           onClose={closeModal}
         />
-        {/* COLUNA ESQUERDA: FORMULÁRIO */}
-        <div style={leftColumn}>
-          <h2 style={{ color: 'var(--color-primary)', marginBottom: 25, textAlign: 'center', fontWeight: 'bold', fontSize: '32px' }}>
-            Criar Nova Tablatura
-          </h2>
 
-          <div style={{ position: 'relative' }}>
-            <label style={labelStyle}>Nome da Música</label>
-            <input
-              style={inputStyle}
-              placeholder="Ex: Asa Branca"
-              value={musica}
-              onChange={(e) => setMusica(e.target.value)}
-            />
+        {/* Retângulo único que expande quando o MIDI entra em cena */}
+        <div style={estiloShell}>
 
-            {sugestoes.length > 0 && (
-              <div style={suggestBox}>
-                {sugestoes.map((item, index) => (
-                  <div
-                    key={index}
-                    onClick={() => selecionarSugestao(item)}
-                    style={suggestItem}
-                    onMouseEnter={(e) => e.target.style.backgroundColor = 'var(--color-bg-page)'}
-                    onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
-                  >
-                    🎵 <strong style={{ color: 'var(--color-text-main)' }}>{item.nome}</strong>
-                    <small style={{ display: 'block', color: 'var(--color-text-muted)', marginTop: 2 }}>{item.autor}</small>
-                  </div>
-                ))}
+          {/* Título FIXO — não rola com o conteúdo */}
+          <h2 style={shellTitulo}>Criar Nova Tablatura</h2>
+
+          <div style={shellCorpo}>
+
+            {/* PAINEL DO FORMULÁRIO — campos rolam; botões ficam fixos embaixo */}
+            <div style={formPanel(mostrarMidi)}>
+
+              <div style={formScroll}>
+                <div style={{ position: 'relative' }}>
+                  <label style={labelStyle}>Nome da Música</label>
+                  <input
+                    style={inputStyle}
+                    placeholder="Ex: Asa Branca"
+                    value={musica}
+                    onChange={(e) => setMusica(e.target.value)}
+                  />
+
+                  {sugestoes.length > 0 && (
+                    <div style={suggestBox}>
+                      {sugestoes.map((item, index) => (
+                        <div
+                          key={index}
+                          onClick={() => selecionarSugestao(item)}
+                          style={suggestItem}
+                          onMouseEnter={(e) => e.target.style.backgroundColor = 'var(--color-bg-page)'}
+                          onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                        >
+                          🎵 <strong style={{ color: 'var(--color-text-main)' }}>{item.nome}</strong>
+                          <small style={{ display: 'block', color: 'var(--color-text-muted)', marginTop: 2 }}>{item.autor}</small>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label style={labelStyle}>Autor da Música {musicaId && <span style={{ color: 'var(--color-primary)' }}>(Bloqueado)</span>}</label>
+                  <input
+                    style={{ ...inputStyle, backgroundColor: musicaId ? 'var(--color-bg-input-locked)' : 'var(--color-bg-card)', cursor: musicaId ? 'not-allowed' : 'text' }}
+                    placeholder="Ex: Luiz Gonzaga"
+                    value={autorMusica}
+                    onChange={(e) => setAutorMusica(e.target.value)}
+                    disabled={!!musicaId}
+                  />
+                </div>
+
+                <div>
+                  <label style={labelStyle}>
+                    Letra da Música {musicaId && <span style={{ color: 'var(--color-primary)' }}>(Bloqueado)</span>}
+                  </label>
+                  <textarea
+                    style={{ ...textareaStyle, backgroundColor: musicaId ? 'var(--color-bg-input-locked)' : 'var(--color-bg-card)', cursor: musicaId ? 'not-allowed' : 'text' }}
+                    placeholder="Cole ou digite a letra da música aqui..."
+                    value={letra}
+                    onChange={(e) => setLetra(e.target.value)}
+                    disabled={!!musicaId}
+                  />
+                </div>
               </div>
-            )}
-          </div>
 
-          <div>
-            <label style={labelStyle}>Autor da Música {musicaId && <span style={{ color: 'var(--color-primary)' }}>(Bloqueado)</span>}</label>
-            <input
-              style={{ ...inputStyle, backgroundColor: musicaId ? 'var(--color-bg-input-locked)' : 'var(--color-bg-card)', cursor: musicaId ? 'not-allowed' : 'text' }}
-              placeholder="Ex: Luiz Gonzaga"
-              value={autorMusica}
-              onChange={(e) => setAutorMusica(e.target.value)}
-              disabled={!!musicaId}
-            />
-          </div>
+              {/* Rodapé FIXO do formulário */}
+              <div style={formRodape}>
+                <button style={buttonStyle} onClick={handleMontarTablatura} disabled={processandoMin}>
+                  {processandoMin ? `Processando${pontosProc}` : 'MONTAR TABLATURA'}
+                </button>
 
-          <div>
-            <label style={labelStyle}>
-              Letra da Música {musicaId && <span style={{ color: 'var(--color-primary)' }}>(Bloqueado)</span>}
-            </label>
-            <textarea
-              style={{ ...textareaStyle, backgroundColor: musicaId ? 'var(--color-bg-input-locked)' : 'var(--color-bg-card)', cursor: musicaId ? 'not-allowed' : 'text' }}
-              placeholder="Cole ou digite a letra da música aqui..."
-              value={letra}
-              onChange={(e) => setLetra(e.target.value)}
-              disabled={!!musicaId}
-            />
-          </div>
+                {!usuario && <p style={{ color: 'var(--color-danger)', fontSize: 13, marginTop: 12, textAlign: 'center', fontWeight: 'bold' }}>* Login necessário para salvar</p>}
+                <p style={linkStyle} onClick={() => navigateAnimated('/', { expand: false })}>Cancelar e Voltar</p>
+              </div>
+            </div>
+            {/* fim do painel do formulário */}
 
-          <button style={buttonStyle} onClick={handleMontarTablatura} disabled={loading}>
-            {loading ? 'Processando...' : 'MONTAR TABLATURA'}
-          </button>
+            {/* PAINEL DO MIDI — aparece dentro do retângulo, à direita.
+                Subtítulo fixo; só a lista de opções rola. */}
+            {mostrarMidi && (
+              <div style={midiPanel}>
+                <h3 style={midiTitulo}>
+                  Arquivos MIDI: {musica}
+                </h3>
 
-          {!usuario && <p style={{ color: 'var(--color-danger)', fontSize: 13, marginTop: 12, textAlign: 'center', fontWeight: 'bold' }}>* Login necessário para salvar</p>}
-          <p style={linkStyle} onClick={() => navigateAnimated('/', { expand: false })}>Cancelar e Voltar</p>
-        </div>
+                {/* Ordenar por — fixo, junto do subtítulo */}
+                {!midiSelecionado && arquivosMidi.length > 1 && (
+                  <label style={ordenarMidiLabel}>
+                    Ordenar por:
+                    <select
+                      value={ordenacaoMidi}
+                      onChange={(e) => setOrdenacaoMidi(e.target.value)}
+                      style={ordenarMidiSelect}
+                    >
+                      {OPCOES_ORDENACAO_MIDI.map((opcao) => (
+                        <option key={opcao.valor} value={opcao.valor}>{opcao.rotulo}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
 
-        {/* COLUNA DIREITA */}
-        {musica.trim() && autorMusica.trim() && (
-          <div style={rightColumn}>
-            <h3 style={{ color: 'var(--color-primary)', marginBottom: 25, textAlign: 'center', fontWeight: 'bold', fontSize: '22px' }}>
-              Arquivos MIDI: {musica}
-            </h3>
-
-            <div style={midiListContainer}>
+                <div style={midiScroll}>
+                <div style={midiListContainer}>
 
               {midiSelecionado ? (
                 <div style={{ ...midiCardStyle, border: '2px solid var(--color-primary)', backgroundColor: 'var(--color-bg-highlight)' }}>
@@ -354,7 +429,7 @@ export default function CriarTabs() {
                     <input type="file" ref={fileInputRef} style={{ display: 'none' }} accept=".mid,.midi" onChange={handleFileUpload} />
                   </div>
 
-                  {arquivosMidi.map((midi) => (
+                  {arquivosMidiOrdenados.map((midi) => (
                     <div key={midi.id} style={midiCardStyle}>
                       <div style={iconBoxSecondary}>🎵</div>
                       <div style={{ flex: 1, paddingLeft: 15, textAlign: 'left', overflow: 'hidden' }}>
@@ -395,15 +470,21 @@ export default function CriarTabs() {
                 </>
               )}
 
-              {arquivosMidi.length === 0 && !midiSelecionado && (
-                <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 20, fontSize: 14, lineHeight: '1.5' }}>
-                  Nenhum arquivo MIDI encontrado.<br />
-                  {!musicaId && <strong style={{ color: 'var(--color-danger)' }}>Insira a letra ao lado para liberar uploads!</strong>}
-                </p>
-              )}
-            </div>
+                  {arquivosMidi.length === 0 && !midiSelecionado && (
+                    <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 20, fontSize: 14, lineHeight: '1.5' }}>
+                      Nenhum arquivo MIDI encontrado.<br />
+                      {!musicaId && <strong style={{ color: 'var(--color-danger)' }}>Insira a letra ao lado para liberar uploads!</strong>}
+                    </p>
+                  )}
+                </div>
+                </div>
+              </div>
+            )}
+
           </div>
-        )}
+          {/* fim do corpo do retângulo */}
+        </div>
+        {/* fim do retângulo único */}
 
       </div>
     </div>
@@ -413,9 +494,63 @@ export default function CriarTabs() {
 /* ===== ESTILOS ===== */
 const pageStyle = { position: 'absolute', top: 0, left: 0, width: '100vw', minHeight: '100vh', backgroundColor: 'var(--color-bg-page)', display: 'flex', justifyContent: 'center', alignItems: 'center', fontFamily: 'Arial, sans-serif', padding: '40px 20px', paddingTop: `${TOPBAR_CLEARANCE}px`, boxSizing: 'border-box', overflowX: 'hidden' };
 
-const contentWrapper ={ display: 'flex', gap: '30px', width: '100%', maxWidth: '1100px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'flex-start' };
-const leftColumn = { flex: 1, minWidth: '320px', maxWidth: '500px', backgroundColor: 'var(--color-bg-card)', padding: '40px', borderRadius: '24px', boxShadow: '0 15px 40px var(--shadow-card)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' };
-const rightColumn = { flex: 1, minWidth: '320px', maxWidth: '500px', backgroundColor: 'var(--color-bg-card)', padding: '40px', borderRadius: '24px', boxShadow: '0 15px 40px var(--shadow-card)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' };
+const contentWrapper = { width: '100%', margin: '0 auto' };
+
+// Retângulo único. Colapsado ocupa 500px (só o formulário); quando o MIDI
+// entra em cena expande até o limite da tela — 20px de folga em cada lateral,
+// igual à barra de menu (pageStyle já tem padding lateral de 20px). O título
+// fica fixo e só o corpo rola.
+const shellCard = (expandido) => ({
+  width: expandido ? '100%' : '500px',
+  maxWidth: '100%',
+  margin: '0 auto',
+  maxHeight: 'calc(100vh - 150px)',
+  backgroundColor: 'var(--color-bg-card)',
+  padding: '40px',
+  borderRadius: '24px',
+  boxShadow: '0 15px 40px var(--shadow-card)',
+  boxSizing: 'border-box',
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
+  transition: 'width 350ms ease'
+});
+const shellTitulo = { color: 'var(--color-primary)', margin: '0 0 25px', textAlign: 'center', fontWeight: 'bold', fontSize: '32px', flexShrink: 0 };
+const shellCorpo = { flex: 1, minHeight: 0, display: 'flex', gap: '30px', alignItems: 'stretch' };
+// Formulário: ocupa tudo enquanto colapsado; ao expandir vira uma coluna de
+// ~460px na esquerda. Sem transição própria — a animação de largura do
+// retângulo é que "revela" o painel de MIDI ao lado. O scroll fica no
+// formScroll (só os campos); o rodapé com os botões fica fixo.
+const formPanel = (expandido) => ({
+  flex: expandido ? '0 1 460px' : '1 1 auto',
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  minHeight: 0
+});
+const formScroll = { flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', paddingRight: '6px', display: 'flex', flexDirection: 'column' };
+const formRodape = { flexShrink: 0, paddingTop: '4px' };
+
+// Painel do MIDI: cresce e preenche o espaço revelado pela expansão. O
+// subtítulo fica fixo (midiTitulo) e só a lista de opções rola (midiScroll).
+const midiPanel = {
+  flexGrow: 1,
+  flexShrink: 1,
+  flexBasis: 0,
+  minWidth: 0,
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  backgroundColor: 'var(--color-bg-card-alt)',
+  border: 'var(--border-width-base) solid var(--color-border-alt)',
+  borderRadius: '18px',
+  padding: '24px',
+  boxSizing: 'border-box'
+};
+const midiTitulo = { color: 'var(--color-primary)', margin: '0 0 14px', textAlign: 'center', fontWeight: 'bold', fontSize: '22px', flexShrink: 0 };
+const midiScroll = { flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', paddingRight: '4px' };
+const ordenarMidiLabel = { flexShrink: 0, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '13px', color: 'var(--color-text-muted)', marginBottom: '14px' };
+const ordenarMidiSelect = { padding: '6px 8px', borderRadius: '8px', border: 'var(--border-width-base) solid var(--color-border)', fontSize: '13px', backgroundColor: 'var(--color-bg-card)', color: 'var(--color-text-main)', cursor: 'pointer', flex: 1, minWidth: 0 };
 const labelStyle = { color: 'var(--color-text-muted)', fontSize: 13, fontWeight: 'bold', marginBottom: 6, display: 'block', marginLeft: 2, textAlign: 'left' };
 const inputStyle = { width: '100%', padding: '15px 18px', marginBottom: 20, borderRadius: '14px', border: 'var(--border-width-base) solid var(--color-border)', backgroundColor: 'var(--color-bg-card)', color: 'var(--color-text-main)', outline: 'none', boxSizing: 'border-box', fontSize: '15px', transition: '0.2s' };
 const textareaStyle = { width: '100%', height: 200, padding: '15px 18px', borderRadius: '14px', border: 'var(--border-width-base) solid var(--color-border)', backgroundColor: 'var(--color-bg-card)', color: 'var(--color-text-main)', fontFamily: 'Arial, sans-serif', fontSize: '14px', resize: 'vertical', boxSizing: 'border-box', outline: 'none', lineHeight: '1.5', transition: '0.2s' };

@@ -5,8 +5,10 @@ import * as s from '../styles/MontarTablaturaStyles';
 import { useMidiPlayer, midiToNoteName } from '../hooks/useMidiPlayer';
 import { supabase } from '../supabaseClient';
 import CustomModal from '../components/CustomModal';
+import LoadingOverlay from '../components/LoadingOverlay';
 import TopBar from '../components/TopBar';
 import { useAnimatedNavigate, fadeStyle } from '../hooks/useAnimatedNavigate';
+import { useCarregamentoMinimo, usePontinhos } from '../hooks/useCarregamento';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
 import { buscarTonsPorTipo, buscarLayoutPorTomETipo } from '../services/gaitaLayoutService';
@@ -19,6 +21,8 @@ export default function MontarTablatura() {
 
   const [notaAvaliacao, setNotaAvaliacao] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  // Fica visível pelo tempo mínimo mesmo que a operação termine antes.
+  const carregandoTela = useCarregamentoMinimo(isLoading);
 
   const location = useLocation();
   const { expanded, contentVisible, navigateAnimated } = useAnimatedNavigate(true);
@@ -57,6 +61,8 @@ export default function MontarTablatura() {
   const [ultimaNotaClicada, setUltimaNotaClicada] = useState(null);
 
   const [isTraduzindo, setIsTraduzindo] = useState(false);
+  // "..." animado dos botões "Aplicando" (config e modal de ajustes).
+  const pontosAplic = usePontinhos(isTraduzindo || carregandoTela);
 
   // === AJUSTES DE NOTAS PENDENTES (agrupados em um único modal) ===
   // Cada item: { parteId, parteNome, offset, detalhes, comandosDisponiveis, mapeamento, novaOitavaIndex }
@@ -1045,17 +1051,7 @@ export default function MontarTablatura() {
   if (mostrarPreview) {
     return (
       <div style={s.pageStyle}>
-        {isLoading && (
-          <div style={{
-            position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-            backgroundColor: 'var(--color-overlay-loading)', display: 'flex',
-            justifyContent: 'center', alignItems: 'center', zIndex: 9999
-          }}>
-            <div style={{ backgroundColor: 'var(--color-bg-card)', padding: '20px 40px', borderRadius: '8px', fontSize: '18px', color: 'var(--color-text-main)' }}>
-              Carregando...
-            </div>
-          </div>
-        )}
+        <LoadingOverlay visivel={carregandoTela} />
         <CustomModal
           isOpen={modalConfig.isOpen}
           title={modalConfig.title}
@@ -1133,17 +1129,7 @@ export default function MontarTablatura() {
 
   return (
     <div style={s.pageStyle}>
-      {isLoading && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-          backgroundColor: 'var(--color-overlay-loading)', display: 'flex',
-          justifyContent: 'center', alignItems: 'center', zIndex: 9999
-        }}>
-          <div style={{ backgroundColor: 'var(--color-bg-card)', padding: '20px 40px', borderRadius: '8px', fontSize: '18px', color: 'var(--color-text-main)' }}>
-            Carregando...
-          </div>
-        </div>
-      )}
+      <LoadingOverlay visivel={carregandoTela} />
       <CustomModal
         isOpen={modalConfig.isOpen}
         title={modalConfig.title}
@@ -1229,7 +1215,7 @@ export default function MontarTablatura() {
                       style={{ ...s.btnAplicarConfig, ...(isTraduzindo ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }}
                       disabled={isTraduzindo}
                     >
-                      {isTraduzindo ? 'Aplicando...' : 'Aplicar Configurações'}
+                      {isTraduzindo ? `Aplicando${pontosAplic}` : 'Aplicar Configurações'}
                     </button>
                   </div>
                 </div>
@@ -1543,7 +1529,7 @@ export default function MontarTablatura() {
                 style={{ ...s.btnConfirmarModal, ...(isLoading ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }}
                 disabled={isLoading}
               >
-                {isLoading ? 'Aplicando...' : 'Confirmar Adaptações'}
+                {isLoading ? `Aplicando${pontosAplic}` : 'Confirmar Adaptações'}
               </button>
             </div>
           </div>
