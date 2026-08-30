@@ -53,7 +53,10 @@ const overlayStyle = {
   alignItems: 'center',
   padding: '16px',
   boxSizing: 'border-box',
-  zIndex: 1000
+  // Acima dos popups próprios das telas (overlays em zIndex 1000, ex.: troca
+  // de senha e exclusão de conta no Perfil): um alerta/confirmação disparado
+  // de dentro de um desses popups precisa aparecer por cima dele, não atrás.
+  zIndex: 1100
 };
 
 const modalStyle = {

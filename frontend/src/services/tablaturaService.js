@@ -1,9 +1,20 @@
 import { supabase } from '../supabaseClient';
 
-// Busca tablaturas com os joins/filtros usados na tela de pesquisa (Menu).
-export async function buscarTablaturas({ nome, autorMusica, autorTab, tom, tipo } = {}) {
-  const joinMusicas = (nome || autorMusica) ? '!inner' : '';
-  const joinUsuarios = autorTab ? '!inner' : '';
+// Busca tablaturas para a tela de pesquisa (Menu).
+//
+// Os campos de texto (nome/autor da música, autor da tab) NÃO são filtrados
+// aqui: o Menu resolve esses termos no cliente (acento-insensível, com
+// ranking) e passa apenas as listas de ids que casaram — `musicaIds` e/ou
+// `usuarioIds`. `null` = sem restrição naquele eixo; `[]` = nada casou, então
+// devolve vazio sem ir ao banco. Tom/tipo continuam sendo filtro exato no
+// servidor.
+export async function buscarTablaturas({ musicaIds = null, usuarioIds = null, tom = '', tipo = '' } = {}) {
+  if ((Array.isArray(musicaIds) && musicaIds.length === 0) ||
+      (Array.isArray(usuarioIds) && usuarioIds.length === 0)) {
+    return { data: [], error: null };
+  }
+
+  // Filtrar por coluna de recurso embutido só funciona com !inner.
   const joinGaita = (tom || tipo) ? '!inner' : '';
 
   let query = supabase.from('tablaturas').select(`
@@ -14,12 +25,12 @@ export async function buscarTablaturas({ nome, autorMusica, autorTab, tom, tipo 
     musica_id,
     midi_id,
     gaita_id,
-    musicas${joinMusicas} (
+    musicas (
       id,
       nome,
       autor
     ),
-    usuarios${joinUsuarios} (
+    usuarios (
       id,
       nome
     ),
@@ -38,9 +49,8 @@ export async function buscarTablaturas({ nome, autorMusica, autorTab, tom, tipo 
     )
   `);
 
-  if (nome) query = query.ilike('musicas.nome', `%${nome}%`);
-  if (autorMusica) query = query.ilike('musicas.autor', `%${autorMusica}%`);
-  if (autorTab) query = query.ilike('usuarios.nome', `%${autorTab}%`);
+  if (Array.isArray(musicaIds)) query = query.in('musica_id', musicaIds);
+  if (Array.isArray(usuarioIds)) query = query.in('usuario_id', usuarioIds);
   if (tom) query = query.eq('layouts_gaita.tom', tom);
   if (tipo) query = query.eq('layouts_gaita.tipo', tipo);
 

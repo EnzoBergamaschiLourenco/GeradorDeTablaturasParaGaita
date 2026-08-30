@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import AnimatedMenuBar, { TOPBAR_CLEARANCE } from '../components/AnimatedMenuBar';
 import { useAnimatedNavigate, CONTENT_FADE_MS } from '../hooks/useAnimatedNavigate';
 import { useCarregamentoMinimo, usePontinhos } from '../hooks/useCarregamento';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { buscarTonsPorTipo } from '../services/gaitaLayoutService';
 import { buscarTablaturas } from '../services/tablaturaService';
+import { listarMusicasParaBusca, listarUsuariosParaBusca } from '../services/buscaService';
+import { normalizar, pontuar, casaTexto, similaridade } from '../utils/busca';
 import { lerSnapshotMenu, salvarSnapshotMenu, limparSnapshotMenu } from '../utils/menuSnapshot';
 
 // Estilos do controle de filtros recolhível — isolados aqui (mesmo padrão do
@@ -26,6 +29,9 @@ const OPCOES_ORDENACAO = [
   { valor: 'alfabetica_za', rotulo: 'Nome da música (Z-A)' }
 ];
 
+// "Relevância" só aparece (e vira padrão) quando há um termo de nome na busca.
+const OPCAO_RELEVANCIA = { valor: 'relevancia', rotulo: 'Relevância' };
+
 // Ordenação aplicada só na exibição (não refaz a busca) — os resultados
 // crus ficam guardados em `resultados` e são reordenados aqui conforme o
 // critério escolhido em "Ordenar por".
@@ -33,6 +39,15 @@ function ordenarResultados(lista, criterio) {
   const copia = [...lista];
 
   switch (criterio) {
+    case 'relevancia':
+      // Nota da busca; empata por acento-exato, curtidas, recência e id.
+      return copia.sort((a, b) =>
+        (b._score || 0) - (a._score || 0) ||
+        (b._acentoExato ? 1 : 0) - (a._acentoExato ? 1 : 0) ||
+        b.totalCurtidas - a.totalCurtidas ||
+        new Date(b.created_at) - new Date(a.created_at) ||
+        (b.id || 0) - (a.id || 0)
+      );
     case 'curtidas_asc':
       return copia.sort((a, b) => a.totalCurtidas - b.totalCurtidas);
     case 'recentes':
@@ -112,6 +127,11 @@ export default function Menu() {
   // de repente.
   const { expanded: navExpanded, contentVisible, navigateAnimated } = useAnimatedNavigate(false);
 
+  // Abaixo desta largura, "Ordenar por" e a paginação não cabem lado a lado
+  // na linha da lista — passam a empilhar (ordenação em cima, paginação
+  // embaixo), cada um centralizado.
+  const cabecalhoListaEmpilhado = useMediaQuery('(max-width: 640px)');
+
   // Snapshot da última lista de resultados (lido só uma vez, no mount). Existe
   // quando o usuário entrou numa tablatura a partir de um resultado e voltou —
   // aí a tela de resultados é remontada exatamente como estava (filtros,
@@ -159,6 +179,9 @@ export default function Menu() {
   // e pro critério padrão (mais curtidas primeiro).
   const [paginaAtual, setPaginaAtual] = useState(() => snapshotInicial?.paginaAtual ?? 1);
   const [ordenacao, setOrdenacao] = useState(() => snapshotInicial?.ordenacao ?? 'curtidas_desc');
+  // Nome da música mais próximo quando a busca por nome não achou nada
+  // ("Você quis dizer …?").
+  const [sugestaoMusica, setSugestaoMusica] = useState(null);
   // Id do card clicado na última vez que saímos daqui pra uma tablatura — usado
   // pra dar um destaque rápido ("foco onde apertei") ao voltar.
   const [idDestacado, setIdDestacado] = useState(() => snapshotInicial?.focoTabId ?? null);
@@ -303,35 +326,76 @@ export default function Menu() {
     buscarTonsDoTipo();
   }, [filtroTipo]);
 
-  // Função para buscar tablaturas no Supabase
-  const handleBuscarTablaturas = async (termoInicial = '') => {
+  // Busca as tablaturas. Os campos de texto (nome/autor da música, autor da
+  // tab) são resolvidos aqui no cliente, acento-insensível e com ranking:
+  // a lista leve de músicas/usuários (buscaService, cacheada) é filtrada em
+  // JS e só os ids que casaram vão para o Supabase.
+  // `termoNome`: quando informado (barra principal, "você quis dizer"), é o
+  // nome autoritativo — não depende do estado `filtroNomeMusica` (que pode
+  // estar defasado no mesmo tick). `null` = usar o campo de filtro.
+  const handleBuscarTablaturas = async (termoNome = null) => {
     setCarregando(true);
     setPesquisaAtiva(true);
-    // Toda nova busca reaplica o critério padrão (mais curtidas) e volta
-    // pra primeira página, independente do que estava selecionado antes.
     setPaginaAtual(1);
-    setOrdenacao('curtidas_desc');
-    // Ao aplicar, recolhe os campos de filtro de volta — dá foco pros
-    // resultados assim que a busca é feita, sem precisar de um clique extra.
     setFiltrosColapsados(true);
+    setSugestaoMusica(null);
+
+    const nomeParaBuscar = (termoNome != null ? termoNome : filtroNomeMusica).trim();
+    const autorMusicaBusca = filtroAutorMusica.trim();
+    const autorTabBusca = filtroAutorTab.trim();
+
+    // Padrão: relevância quando há termo de nome, senão mais curtidas.
+    setOrdenacao(nomeParaBuscar ? 'relevancia' : 'curtidas_desc');
+
+    setFiltrosAplicados({
+      nome: nomeParaBuscar,
+      autorMusica: autorMusicaBusca,
+      autorTab: autorTabBusca,
+      tom: filtroTom,
+      tipo: filtroTipo
+    });
 
     try {
-      const nomeParaBuscar = filtroNomeMusica || termoInicial;
+      const nomeNorm = normalizar(nomeParaBuscar);
+      const autorMusicaNorm = normalizar(autorMusicaBusca);
+      const autorTabNorm = normalizar(autorTabBusca);
 
-      // Só agora — de fato aplicando a busca — o snapshot exibido no
-      // cabeçalho é atualizado (ver comentário em filtrosAplicados).
-      setFiltrosAplicados({
-        nome: nomeParaBuscar,
-        autorMusica: filtroAutorMusica,
-        autorTab: filtroAutorTab,
-        tom: filtroTom,
-        tipo: filtroTipo
-      });
+      // --- Resolve musica_id por nome e/ou autor da música ---
+      let musicaIds = null; // null = sem restrição por música
+      const scorePorMusica = new Map();
+      if (nomeNorm || autorMusicaNorm) {
+        const musicas = await listarMusicasParaBusca();
+        const casadas = musicas.filter(
+          (m) => casaTexto(nomeNorm, m.nomeNorm) && casaTexto(autorMusicaNorm, m.autorNorm)
+        );
+
+        // "Você quis dizer": nome digitado mas nada casou.
+        if (nomeNorm && casadas.length === 0) {
+          const melhor = musicas
+            .map((m) => ({ nome: m.nome, sim: similaridade(nomeNorm, m.nomeNorm) }))
+            .sort((a, b) => b.sim - a.sim)[0];
+          if (melhor && melhor.sim >= 0.3) setSugestaoMusica(melhor.nome);
+        }
+
+        musicaIds = casadas.map((m) => m.id);
+        casadas.forEach((m) => {
+          scorePorMusica.set(m.id, {
+            score: nomeNorm ? pontuar(nomeNorm, m.nomeNorm, nomeParaBuscar, m.nome) : 0,
+            acentoExato: Boolean(nomeParaBuscar) && nomeParaBuscar === m.nome
+          });
+        });
+      }
+
+      // --- Resolve usuario_id por autor da tab ---
+      let usuarioIds = null;
+      if (autorTabNorm) {
+        const usuarios = await listarUsuariosParaBusca();
+        usuarioIds = usuarios.filter((u) => casaTexto(autorTabNorm, u.nomeNorm)).map((u) => u.id);
+      }
 
       const { data, error } = await buscarTablaturas({
-        nome: nomeParaBuscar,
-        autorMusica: filtroAutorMusica,
-        autorTab: filtroAutorTab,
+        musicaIds,
+        usuarioIds,
         tom: filtroTom,
         tipo: filtroTipo
       });
@@ -344,6 +408,7 @@ export default function Menu() {
           const curtidasValidas = Array.isArray(item.curtidas)
             ? item.curtidas.filter((c) => c.bool_curtida !== false).length
             : 0;
+          const info = scorePorMusica.get(item.musica_id);
 
           return {
             ...item,
@@ -355,7 +420,9 @@ export default function Menu() {
             midi_utilizado: item.arquivos_midi?.arquivo_midi || 'Nenhum',
             conteudo: item.tablatura,
             created_at: item.data,
-            totalCurtidas: curtidasValidas
+            totalCurtidas: curtidasValidas,
+            _score: info?.score || 0,
+            _acentoExato: info?.acentoExato || false
           };
         });
 
@@ -402,6 +469,7 @@ export default function Menu() {
   const voltarParaInicio = () => {
     limparSnapshotMenu();
     setIdDestacado(null);
+    setSugestaoMusica(null);
     setPesquisaAtiva(false);
     setResultados([]);
     setBusca('');
@@ -438,6 +506,11 @@ export default function Menu() {
     });
     navigateAnimated('/VisualizarTabs', { expand: true, state: { tab } });
   };
+
+  // "Relevância" na lista de ordenação só quando a busca teve termo de nome.
+  const opcoesOrdenacao = filtrosAplicados.nome
+    ? [OPCAO_RELEVANCIA, ...OPCOES_ORDENACAO]
+    : OPCOES_ORDENACAO;
 
   const resultadosOrdenados = ordenarResultados(resultados, ordenacao);
   const totalPaginas = Math.max(1, Math.ceil(resultadosOrdenados.length / RESULTADOS_POR_PAGINA));
@@ -741,12 +814,13 @@ export default function Menu() {
               <div style={{ overflow: 'hidden' }}>
                 <div
                   style={{
-                    display: 'grid',
-                    // auto-fit: várias colunas quando cabem, 1 quando não —
-                    // sem breakpoint fixo. O card em volta nunca deixa o grid
-                    // ficar abaixo de ~240px, então o mínimo de 210px de cada
-                    // trilha não gera overflow (auto-fit só cria coluna que cabe).
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                    // Flex com wrap: "Nome da música" + "Autor da música"
+                    // dividem uma linha (50% cada), juntos ocupando o mesmo
+                    // que "Autor da tab" (linha inteira). "Tom" + "Tipo"
+                    // seguem a mesma regra. Quando a largura fica pequena
+                    // demais para os dois lado a lado, o segundo pula de linha.
+                    display: 'flex',
+                    flexWrap: 'wrap',
                     gap: '12px',
                     marginBottom: '15px'
                   }}
@@ -757,6 +831,8 @@ export default function Menu() {
                     value={filtroNomeMusica}
                     onChange={(e) => setFiltroNomeMusica(e.target.value)}
                     style={{
+                      flex: '1 1 210px',
+                      minWidth: 0,
                       padding: '10px',
                       borderRadius: '8px',
                       border: 'var(--border-width-base) solid var(--color-border-neutral)'
@@ -769,6 +845,8 @@ export default function Menu() {
                     value={filtroAutorMusica}
                     onChange={(e) => setFiltroAutorMusica(e.target.value)}
                     style={{
+                      flex: '1 1 210px',
+                      minWidth: 0,
                       padding: '10px',
                       borderRadius: '8px',
                       border: 'var(--border-width-base) solid var(--color-border-neutral)'
@@ -781,10 +859,11 @@ export default function Menu() {
                     value={filtroAutorTab}
                     onChange={(e) => setFiltroAutorTab(e.target.value)}
                     style={{
+                      flex: '1 1 100%',
+                      minWidth: 0,
                       padding: '10px',
                       borderRadius: '8px',
-                      border: 'var(--border-width-base) solid var(--color-border-neutral)',
-                      gridColumn: '1 / -1'
+                      border: 'var(--border-width-base) solid var(--color-border-neutral)'
                     }}
                   />
 
@@ -794,6 +873,8 @@ export default function Menu() {
                     onChange={(e) => setFiltroTom(e.target.value)}
                     disabled={carregandoTonsFiltro}
                     style={{
+                      flex: '1 1 210px',
+                      minWidth: 0,
                       padding: '10px',
                       borderRadius: '8px',
                       border: 'var(--border-width-base) solid var(--color-border-neutral)',
@@ -820,6 +901,8 @@ export default function Menu() {
                       setFiltroTom('');
                     }}
                     style={{
+                      flex: '1 1 210px',
+                      minWidth: 0,
                       padding: '10px',
                       borderRadius: '8px',
                       border: 'var(--border-width-base) solid var(--color-border-neutral)',
@@ -866,28 +949,25 @@ export default function Menu() {
               }}
             />
 
-            {/* Lista de Cards — "Ordenar por" à esquerda e paginação
-                centralizada, na mesma linha. Grid de 3 colunas (não flex com
-                position:absolute) pra centralizar a paginação sem nunca
-                sobrepor a ordenação — cada coluna reserva seu próprio
-                espaço, então se a linha ficar estreita o conteúdo
-                quebra/encolhe dentro da própria coluna em vez de invadir a
-                vizinha. A paginação some daqui se não houver mais de uma
-                página; a ordenação não se repete embaixo, diferente da
-                paginação (que ajuda tanto no topo quanto no fim de listas
-                longas). */}
+            {/* Cabeçalho da lista — "Ordenar por" à esquerda e paginação
+                centralizada na mesma linha (grid de 3 colunas: cada coluna
+                reserva seu espaço, então o conteúdo encolhe dentro da própria
+                coluna em vez de invadir a vizinha). Abaixo de 640px os dois
+                não cabem lado a lado: viram uma coluna só — ordenação em cima,
+                paginação embaixo, cada um centralizado. A paginação some daqui
+                se não houver mais de uma página. */}
             <div
               ref={topoListaRef}
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
+                gridTemplateColumns: cabecalhoListaEmpilhado ? '1fr' : 'minmax(0, 1fr) auto minmax(0, 1fr)',
                 alignItems: 'center',
-                gap: '10px',
+                gap: cabecalhoListaEmpilhado ? '12px' : '10px',
                 marginTop: 0,
                 marginBottom: '15px'
               }}
             >
-              <div style={{ justifySelf: 'start', minWidth: 0, maxWidth: '100%' }}>
+              <div style={{ justifySelf: cabecalhoListaEmpilhado ? 'center' : 'start', minWidth: 0, maxWidth: '100%' }}>
                 {resultados.length > 0 && (
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '13px', color: 'var(--color-text-muted)', minWidth: 0 }}>
                     Ordenar por:
@@ -906,7 +986,7 @@ export default function Menu() {
                         maxWidth: '100%'
                       }}
                     >
-                      {OPCOES_ORDENACAO.map((opcao) => (
+                      {opcoesOrdenacao.map((opcao) => (
                         <option key={opcao.valor} value={opcao.valor}>
                           {opcao.rotulo}
                         </option>
@@ -916,15 +996,17 @@ export default function Menu() {
                 )}
               </div>
 
-              <div style={{ justifySelf: 'center' }}>
-                {!buscandoMin && resultados.length > 0 && (
+              {/* Só entra no grid quando há mais de uma página — senão, no
+                  modo empilhado, sobraria uma linha vazia embaixo da ordenação. */}
+              {!buscandoMin && resultados.length > 0 && totalPaginas > 1 && (
+                <div style={{ justifySelf: 'center' }}>
                   <ControlesPaginacao
                     paginaAtual={paginaSegura}
                     totalPaginas={totalPaginas}
                     onMudarPagina={irParaPagina}
                   />
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
             {buscandoMin ? (
@@ -933,9 +1015,26 @@ export default function Menu() {
                 <span style={{ display: 'inline-block', width: '1.4em', textAlign: 'left' }}>{pontosBusca}</span>
               </p>
             ) : resultados.length === 0 ? (
-              <p style={{ color: 'var(--color-text-light)' }}>
-                Nenhuma tablatura encontrada.
-              </p>
+              <div style={{ color: 'var(--color-text-light)' }}>
+                <p style={{ margin: 0 }}>Nenhuma tablatura encontrada.</p>
+                {sugestaoMusica && (
+                  <p style={{ margin: '8px 0 0', color: 'var(--color-text-muted)' }}>
+                    Você quis dizer{' '}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBusca(sugestaoMusica);
+                        setFiltroNomeMusica(sugestaoMusica);
+                        handleBuscarTablaturas(sugestaoMusica);
+                      }}
+                      style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'var(--color-primary)', textDecoration: 'underline', cursor: 'pointer' }}
+                    >
+                      {sugestaoMusica}
+                    </button>
+                    ?
+                  </p>
+                )}
+              </div>
             ) : (
               <>
                 <div

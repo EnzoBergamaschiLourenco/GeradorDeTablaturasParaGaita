@@ -35,6 +35,18 @@ body {
   }
 }
 
+/* Entrada suave de um bloco que troca de conteúdo (ex.: painel de MIDI ao
+   selecionar / clicar em "Trocar"). Roda via `key` no elemento: quando a
+   chave muda, o React remonta e a animação toca de novo. Respeita
+   prefers-reduced-motion pelo bloco abaixo. */
+@keyframes ht-fade-swap {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ht-fade-swap {
+  animation: ht-fade-swap 240ms ease both;
+}
+
 /* Acessibilidade: quem pede menos movimento não recebe as transições de
    fade/expand. A navegação continua funcionando (os timeouts em JS não
    dependem do CSS) — só o efeito visual fica instantâneo. */

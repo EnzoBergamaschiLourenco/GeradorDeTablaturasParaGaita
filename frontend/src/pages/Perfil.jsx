@@ -13,6 +13,34 @@ import {
 } from '../services/authService';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
+import { REGRAS_SENHA, requisitosNaoAtendidos } from '../utils/senha';
+
+// Botão de olho (mostrar/ocultar) reutilizado nos três campos do popup de
+// troca de senha e no campo de nova senha da edição — cada um com seu
+// próprio estado de visibilidade.
+function BotaoOlho({ mostrar, onToggle }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      style={eyeButtonStyle}
+      aria-label={mostrar ? 'Ocultar senha' : 'Mostrar senha'}
+      title={mostrar ? 'Ocultar senha' : 'Mostrar senha'}
+    >
+      {mostrar ? (
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 5c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+          <line x1="1" y1="1" x2="23" y2="23" />
+        </svg>
+      )}
+    </button>
+  );
+}
 
 export default function Perfil() {
   const { modalConfig, showAlert, showConfirm, closeModal } = useModal();
@@ -38,10 +66,17 @@ export default function Perfil() {
   const [nome, setNome] = useState(usuario?.nome || '');
   const [fotoFile, setFotoFile] = useState(null);
 
+  // isTrocandoSenha: se o popup de troca de senha está aberto. Os três
+  // campos (senha atual / nova / confirmação) e seus toggles de olho vivem
+  // aqui — o popup usa de referência a seção de senha do cadastro (checklist
+  // ao vivo + feedback de borda), só que com o campo da senha atual a mais.
+  const [isTrocandoSenha, setIsTrocandoSenha] = useState(false);
   const [mostrarSenhaNova, setMostrarSenhaNova] = useState(false);
   const [mostrarSenhaAtual, setMostrarSenhaAtual] = useState(false);
+  const [mostrarSenhaConfirmacao, setMostrarSenhaConfirmacao] = useState(false);
   const [senhaAtual, setSenhaAtual] = useState('');
   const [senhaNova, setSenhaNova] = useState('');
+  const [senhaConfirmacao, setSenhaConfirmacao] = useState('');
   const [senhaConfirmacaoDelete, setSenhaConfirmacaoDelete] = useState('');
 
   useEffect(() => {
@@ -61,27 +96,14 @@ export default function Perfil() {
   const urlFoto = usuario.foto || usuario.foto_perfil;
 
   // =========================
-  // UPDATE PERFIL
+  // UPDATE PERFIL (nome + foto)
   // =========================
+  // A troca de senha saiu daqui e virou o popup próprio (handleTrocarSenha),
+  // então editar nome/foto não pede mais a senha atual.
   const handleUpdate = async () => {
-    if (!senhaAtual) {
-      showAlert("Senha atual obrigatória.", "Alerta", "info");
-      return;
-    }
-
     setLoading(true);
 
     try {
-      const { data: userVerify } = await buscarUsuarioPorCredenciais({
-        email: usuario.email,
-        senha: senhaAtual
-      });
-
-      if (!userVerify) {
-        showAlert("Senha incorreta.", "Erro", "error");
-        return;
-      }
-
       let foto_perfil_atualizada = urlFoto || '';
 
       // se enviou nova imagem
@@ -91,10 +113,6 @@ export default function Perfil() {
       }
 
       const updates = { nome, foto_perfil: foto_perfil_atualizada };
-
-      if (senhaNova.trim() !== '') {
-        updates.senha = await hashPassword(senhaNova);
-      }
 
       const { error } = await atualizarPerfil({ email: usuario.email, updates });
 
@@ -113,13 +131,79 @@ export default function Perfil() {
 
         showAlert("Perfil atualizado!", "Sucesso", "success");
         setIsEditing(false);
-        setSenhaAtual('');
-        setSenhaNova('');
         setFotoFile(null);
       }
     } catch (error) {
       console.error(error);
       showAlert("Ocorreu um erro ao atualizar o perfil.", "Erro", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // =========================
+  // TROCAR SENHA (popup)
+  // =========================
+  const abrirTrocarSenha = () => {
+    setSenhaAtual('');
+    setSenhaNova('');
+    setSenhaConfirmacao('');
+    setMostrarSenhaAtual(false);
+    setMostrarSenhaNova(false);
+    setMostrarSenhaConfirmacao(false);
+    setIsTrocandoSenha(true);
+  };
+
+  const fecharTrocarSenha = () => {
+    setIsTrocandoSenha(false);
+    setSenhaAtual('');
+    setSenhaNova('');
+    setSenhaConfirmacao('');
+  };
+
+  const handleTrocarSenha = async () => {
+    if (!senhaAtual || !senhaNova || !senhaConfirmacao) {
+      showAlert("Preencha todos os campos.", "Aviso", "info");
+      return;
+    }
+
+    if (requisitosNaoAtendidos(senhaNova).length > 0) {
+      showAlert("A nova senha não atende a todos os requisitos.", "Senha inválida", "error");
+      return;
+    }
+
+    if (senhaConfirmacao !== senhaNova) {
+      showAlert("A confirmação de senha não é igual à nova senha digitada.", "Senhas não conferem", "error");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const { data: userVerify } = await buscarUsuarioPorCredenciais({
+        email: usuario.email,
+        senha: senhaAtual
+      });
+
+      if (!userVerify) {
+        showAlert("Senha atual incorreta.", "Erro", "error");
+        return;
+      }
+
+      const { error } = await atualizarPerfil({
+        email: usuario.email,
+        updates: { senha: await hashPassword(senhaNova) }
+      });
+
+      if (error) {
+        showAlert(error.message, "Erro", "error");
+      } else {
+        showAlert("Senha alterada com sucesso!", "Sucesso", "success");
+        fecharTrocarSenha();
+      }
+    } catch (error) {
+      console.error(error);
+      showAlert("Ocorreu um erro ao trocar a senha.", "Erro", "error");
     } finally {
       setLoading(false);
     }
@@ -263,6 +347,107 @@ export default function Perfil() {
         </div>
       )}
 
+      {/* Popup de troca de senha — mesmo overlay/caixa do popup de exclusão.
+          Espelha a seção de senha do cadastro (checklist ao vivo + borda
+          verde/vermelha + confirmação), acrescentando o campo "senha atual". */}
+      {isTrocandoSenha && (
+        <div style={modalOverlayStyle}>
+          <div style={{ ...modalBoxStyle, maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 style={{ color: 'var(--color-primary)', marginBottom: '10px' }}>
+              Trocar senha
+            </h3>
+            <p style={{ color: 'var(--color-text-main)', marginBottom: '16px', fontSize: '15px' }}>
+              Confirme sua senha atual e escolha uma nova.
+            </p>
+
+            <div style={{ position: 'relative', marginBottom: '12px' }}>
+              <input
+                type={mostrarSenhaAtual ? 'text' : 'password'}
+                placeholder="Senha atual"
+                value={senhaAtual}
+                onChange={(e) => setSenhaAtual(e.target.value)}
+                style={{ ...inputStyle, marginBottom: 0, paddingRight: '44px' }}
+              />
+              <BotaoOlho mostrar={mostrarSenhaAtual} onToggle={() => setMostrarSenhaAtual(!mostrarSenhaAtual)} />
+            </div>
+
+            <div style={{ position: 'relative', marginBottom: 0 }}>
+              <input
+                type={mostrarSenhaNova ? 'text' : 'password'}
+                placeholder="Nova senha"
+                value={senhaNova}
+                onChange={(e) => setSenhaNova(e.target.value.replace(/\s/g, ''))}
+                style={{
+                  ...inputStyle,
+                  marginBottom: 0,
+                  paddingRight: '44px',
+                  ...(senhaNova === ''
+                    ? {}
+                    : requisitosNaoAtendidos(senhaNova).length === 0
+                      ? bordaValida
+                      : bordaInvalida)
+                }}
+              />
+              <BotaoOlho mostrar={mostrarSenhaNova} onToggle={() => setMostrarSenhaNova(!mostrarSenhaNova)} />
+            </div>
+
+            <ul style={checklistStyle}>
+              {REGRAS_SENHA.map((regra) => {
+                const ok = regra.teste(senhaNova);
+                const cor = senhaNova === ''
+                  ? 'var(--color-text-muted)'
+                  : ok
+                    ? 'var(--color-text-success)'
+                    : 'var(--color-text-danger-strong)';
+                return (
+                  <li key={regra.chave} style={{ color: cor }}>
+                    {senhaNova === '' ? '•' : ok ? '✓' : '✗'} {regra.label}
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div style={{ position: 'relative', marginBottom: 0 }}>
+              <input
+                type={mostrarSenhaConfirmacao ? 'text' : 'password'}
+                placeholder="Confirmar nova senha"
+                value={senhaConfirmacao}
+                onChange={(e) => setSenhaConfirmacao(e.target.value.replace(/\s/g, ''))}
+                style={{
+                  ...inputStyle,
+                  marginBottom: 0,
+                  paddingRight: '44px',
+                  ...(senhaConfirmacao === ''
+                    ? {}
+                    : senhaConfirmacao === senhaNova
+                      ? bordaValida
+                      : bordaInvalida)
+                }}
+              />
+              <BotaoOlho mostrar={mostrarSenhaConfirmacao} onToggle={() => setMostrarSenhaConfirmacao(!mostrarSenhaConfirmacao)} />
+            </div>
+            {senhaConfirmacao !== '' && senhaConfirmacao !== senhaNova && (
+              <p style={{ color: 'var(--color-text-danger-strong)', fontSize: '12.5px', margin: '6px 0 0' }}>
+                As senhas não conferem.
+              </p>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap', marginTop: '18px' }}>
+              <button style={modalCancelButtonStyle} onClick={fecharTrocarSenha}>
+                Cancelar
+              </button>
+              <button
+                style={{ ...modalConfirmButtonStyle, backgroundColor: 'var(--color-primary)' }}
+                onClick={handleTrocarSenha}
+                disabled={carregandoMin}
+              >
+                {carregandoMin ? `Salvando${pontos}` : 'Salvar nova senha'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ ...cardStyle, ...fadeStyle(contentVisible) }}>
         <h1 style={{ color: 'var(--color-primary)', fontSize: 'clamp(28px, 7vw, 56px)' }}>Meu Perfil</h1>
 
@@ -322,67 +507,27 @@ export default function Perfil() {
               onChange={(e) => setFotoFile(e.target.files[0])}
             />
 
-            <div style={{ position: 'relative', marginBottom: '12px' }}>
-              <input
-                type={mostrarSenhaNova ? 'text' : 'password'}
-                placeholder="Nova Senha"
-                value={senhaNova}
-                onChange={(e) => setSenhaNova(e.target.value)}
-                style={{ ...inputStyle, marginBottom: 0, paddingRight: '44px' }}
-              />
-              <button
-                type="button"
-                onClick={() => setMostrarSenhaNova(!mostrarSenhaNova)}
-                style={eyeButtonStyle}
-                aria-label={mostrarSenhaNova ? 'Ocultar senha' : 'Mostrar senha'}
-                title={mostrarSenhaNova ? 'Ocultar senha' : 'Mostrar senha'}
-              >
-                {mostrarSenhaNova ? (
-                  // Olho aberto: senha visível
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                ) : (
-                  // Olho fechado/riscado: senha oculta
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 5c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24" />
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                  </svg>
-                )}
-              </button>
-            </div>
-            
-            <div style={{ position: 'relative', marginBottom: '12px' }}>
-              <input
-                type={mostrarSenhaAtual ? 'text' : 'password'}
-                placeholder="Senha Atual"
-                value={senhaAtual}
-                onChange={(e) => setSenhaAtual(e.target.value)}
-                style={{ ...inputStyle, marginBottom: 0, paddingRight: '44px' }}
-              />
-              <button
-                type="button"
-                onClick={() => setMostrarSenhaAtual(!mostrarSenhaAtual)}
-                style={eyeButtonStyle}
-                aria-label={mostrarSenhaAtual ? 'Ocultar senha' : 'Mostrar senha'}
-                title={mostrarSenhaAtual ? 'Ocultar senha' : 'Mostrar senha'}
-              >
-                {mostrarSenhaAtual ? (
-                  // Olho aberto: senha visível
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                ) : (
-                  // Olho fechado/riscado: senha oculta
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 5c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24" />
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                  </svg>
-                )}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={abrirTrocarSenha}
+              style={{
+                ...buttonStyle,
+                background: 'transparent',
+                color: 'var(--color-primary)',
+                border: 'var(--border-width-base) solid var(--color-primary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                marginBottom: 12
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              Trocar senha
+            </button>
 
             <button
               style={{ ...buttonStyle, backgroundColor: 'var(--color-success)' }}
@@ -531,6 +676,22 @@ const infoBox = {
   padding: 12,
   borderRadius: 12,
   marginBottom: 15
+};
+
+// Feedback de borda dos campos de senha do popup — mesmo padrão do cadastro.
+const bordaValida = { border: '2px solid var(--color-success)' };
+const bordaInvalida = { border: '2px solid var(--color-danger)' };
+
+// Checklist ao vivo das regras de senha, abaixo do campo "nova senha".
+const checklistStyle = {
+  listStyle: 'none',
+  padding: 0,
+  margin: '8px 0 14px',
+  fontSize: '12.5px',
+  textAlign: 'left',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '3px'
 };
 
 const eyeButtonStyle = {

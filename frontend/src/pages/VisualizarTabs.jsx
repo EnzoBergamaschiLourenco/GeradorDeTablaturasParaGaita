@@ -172,6 +172,7 @@ Pleased the Lord
     <div
       style={{
         flex: 1,
+        minHeight: 0, // deixa o flex encolher pra caber e rolar por dentro
         padding: '20px',
         overflowY: 'auto',
         // Em coluna estreita, a tablatura rola na horizontal (mantendo o
@@ -198,6 +199,49 @@ Pleased the Lord
     cursor: 'pointer',
     flexShrink: 0
   };
+
+  // O "retângulo amarelo" da tablatura. Em tela larga vai na coluna da
+  // esquerda; abaixo de BP_STACK entra DENTRO do card branco (`embutido`),
+  // entre a divisória e o botão de curtir — em vez de virar um retângulo
+  // separado empilhado.
+  const renderBlocoTablatura = (embutido) => (
+    <div style={{
+      width: '100%',
+      height: embutido ? 'auto' : '100%',
+      minHeight: embutido ? '40vh' : undefined,
+      // Embutido: janela de no máx. 60vh que rola por dentro — a tablatura
+      // não estica o card inteiro (details e ações continuam acessíveis).
+      maxHeight: embutido ? '60vh' : undefined,
+      maxWidth: embutido ? undefined : '820px',
+      backgroundColor: 'var(--color-bg-paper)',
+      borderRadius: '16px',
+      border: 'var(--border-width-base) solid var(--color-border-paper)',
+      boxShadow: embutido ? 'none' : '0 10px 30px var(--shadow-card-soft)',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden'
+    }}>
+      {/* Cabeçalho enxuto: só o botão de maximizar no canto */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 10px 0' }}>
+        <button
+          type="button"
+          onClick={() => setTablaturaMaximizada(true)}
+          style={btnIconeStyle}
+          title="Maximizar tablatura"
+          aria-label="Maximizar tablatura"
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 3 21 3 21 9" />
+            <polyline points="9 21 3 21 3 15" />
+            <line x1="21" y1="3" x2="14" y2="10" />
+            <line x1="3" y1="21" x2="10" y2="14" />
+          </svg>
+        </button>
+      </div>
+      {/* Quando maximizado, o conteúdo vai pro overlay (evita textarea/estado duplicado) */}
+      {!tablaturaMaximizada && conteudoTablatura}
+    </div>
+  );
 
   // Busca o status de curtida e o total atualizado no banco ao carregar
   useEffect(() => {
@@ -576,75 +620,49 @@ Pleased the Lord
       {/* navegarComGuardaEdicao: título / perfil / login pedem "Salvar e sair /
           Descartar" se houver edição não salva. */}
       <TopBar expanded={expanded} navigateAnimated={navegarComGuardaEdicao} />
-      {/* COLUNA DA ESQUERDA (Texto da Tablatura) */}
-      {/* Espaçamentos referenciados na barra de menu: 20px do topo (respiro
-          embaixo da barra, já embutido no TOPBAR_CLEARANCE), 20px das bordas
-          e da base, 20px entre os dois retângulos (10 + 10 nas laterais
-          internas). */}
-      <div
-        style={{
-          width: isStacked ? '100%' : '50%',
-          height: isStacked ? 'auto' : '100%',
-          display: 'flex',
-          justifyContent: isStacked ? 'center' : 'flex-end',
-          alignItems: 'center',
-          padding: '20px',
-          paddingTop: `${TOPBAR_CLEARANCE}px`,
-          paddingRight: isStacked ? '20px' : '10px',
-          boxSizing: 'border-box',
-          backgroundColor: 'var(--color-bg-page)',
-          ...fadeStyle(contentVisible)
-        }}
-      >
-        <div style={{
-          width: '100%',
-          height: isStacked ? 'auto' : '100%',
-          minHeight: isStacked ? '60vh' : undefined,
-          maxWidth: '820px',
-          backgroundColor: 'var(--color-bg-paper)',
-          borderRadius: '16px',
-          border: 'var(--border-width-base) solid var(--color-border-paper)',
-          boxShadow: '0 10px 30px var(--shadow-card-soft)',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden' // para garantir que o conteúdo não vaze
-        }}>
-          {/* Cabeçalho enxuto: só o botão de maximizar no canto */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 10px 0' }}>
-            <button
-              type="button"
-              onClick={() => setTablaturaMaximizada(true)}
-              style={btnIconeStyle}
-              title="Maximizar tablatura"
-              aria-label="Maximizar tablatura"
-            >
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="15 3 21 3 21 9" />
-                <polyline points="9 21 3 21 3 15" />
-                <line x1="21" y1="3" x2="14" y2="10" />
-                <line x1="3" y1="21" x2="10" y2="14" />
-              </svg>
-            </button>
-          </div>
-          {/* Quando maximizado, o conteúdo vai pro overlay (evita textarea/estado duplicado) */}
-          {!tablaturaMaximizada && conteudoTablatura}
+      {/* COLUNA DA ESQUERDA (Texto da Tablatura) — só em tela larga. Abaixo de
+          BP_STACK o retângulo da tablatura passa a ser renderizado dentro do
+          card branco (ver renderBlocoTablatura / bloco embutido mais abaixo). */}
+      {!isStacked && (
+        <div
+          style={{
+            width: '50%',
+            height: '100%',
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            padding: '20px',
+            paddingTop: `${TOPBAR_CLEARANCE}px`,
+            paddingRight: '10px',
+            boxSizing: 'border-box',
+            backgroundColor: 'var(--color-bg-page)',
+            ...fadeStyle(contentVisible)
+          }}
+        >
+          {renderBlocoTablatura(false)}
         </div>
-      </div>
+      )}
 
-      {/* COLUNA DA DIREITA (Card de Informações e Ações) */}
+      {/* COLUNA DA DIREITA (Card de Informações e Ações). Abaixo de BP_STACK
+          este é o único retângulo — a tablatura fica embutida nele — então
+          precisa do respiro da barra de menu no topo (não mais só 20px). */}
       <div
         style={{
           width: isStacked ? '100%' : '50%',
           height: isStacked ? 'auto' : '100%',
           display: 'flex',
           justifyContent: isStacked ? 'center' : 'flex-start',
-          alignItems: 'center',
+          // Empilhado: alinha ao topo (centralizar deixaria o topo do card
+          // inacessível quando ele passa da altura da viewport) e deixa o
+          // conteúdo transbordar para o scroll do container externo, em vez
+          // de recortá-lo (overflow: hidden).
+          alignItems: isStacked ? 'flex-start' : 'center',
           padding: '20px',
-          paddingTop: isStacked ? '20px' : `${TOPBAR_CLEARANCE}px`,
+          paddingTop: `${TOPBAR_CLEARANCE}px`,
           paddingLeft: isStacked ? '20px' : '10px',
           boxSizing: 'border-box',
           backgroundColor: 'var(--color-bg-page)',
-          overflow: 'hidden',
+          overflow: isStacked ? 'visible' : 'hidden',
           ...fadeStyle(contentVisible)
         }}
       >
@@ -719,6 +737,17 @@ Pleased the Lord
 
           <hr style={{ border: 'none', borderTop: '2px solid var(--color-border-divider-alt)', margin: '30px 0' }} />
 
+          {/* Abaixo de BP_STACK: a tablatura (retângulo amarelo) entra AQUI,
+              entre a divisória acima e o botão de curtir, com uma segunda
+              divisória logo depois dela. Em tela larga ela fica na coluna da
+              esquerda e este bloco não é renderizado. */}
+          {isStacked && (
+            <>
+              {renderBlocoTablatura(true)}
+              <hr style={{ border: 'none', borderTop: '2px solid var(--color-border-divider-alt)', margin: '30px 0' }} />
+            </>
+          )}
+
           {/* Base do Card - Ações */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
 
@@ -760,9 +789,12 @@ Pleased the Lord
                   flex: '1 1 140px',
                   minWidth: 0,
                   padding: '14px',
-                  backgroundColor: linkCopiado ? 'var(--color-bg-liked)' : 'transparent',
-                  color: linkCopiado ? 'var(--color-text-success)' : 'var(--color-text-main)',
-                  border: `2px solid ${linkCopiado ? 'var(--color-border-liked)' : 'var(--color-border)'}`,
+                  // Mesmo azul dos botões da tela inicial; troca pro verde de
+                  // "curtido" só no feedback momentâneo de link copiado.
+                  backgroundColor: linkCopiado ? 'var(--color-bg-liked)' : 'var(--color-primary)',
+                  color: linkCopiado ? 'var(--color-text-success)' : 'var(--color-text-on-primary)',
+                  border: linkCopiado ? '2px solid var(--color-border-liked)' : 'none',
+                  boxShadow: linkCopiado ? 'none' : '0 6px 18px var(--shadow-button-primary)',
                   cursor: 'pointer',
                   fontSize: '15px',
                   fontWeight: 'bold',
@@ -783,9 +815,10 @@ Pleased the Lord
                   flex: '1 1 140px',
                   minWidth: 0,
                   padding: '14px',
-                  backgroundColor: 'transparent',
-                  color: 'var(--color-text-main)',
-                  border: '2px solid var(--color-border)',
+                  backgroundColor: 'var(--color-primary)',
+                  color: 'var(--color-text-on-primary)',
+                  border: 'none',
+                  boxShadow: '0 6px 18px var(--shadow-button-primary)',
                   cursor: 'pointer',
                   fontSize: '15px',
                   fontWeight: 'bold',

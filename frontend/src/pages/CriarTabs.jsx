@@ -7,7 +7,7 @@ import { useIsStacked } from '../hooks/useMediaQuery';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
 import {
-  buscarSugestoesMusicas,
+  buscarMusicasPorIds,
   buscarMusicaExata,
   criarMusica,
   buscarArquivosMidiPorMusica,
@@ -15,6 +15,9 @@ import {
   uploadArquivoMidi,
   registrarArquivoMidi
 } from '../services/musicaService';
+import { listarMusicasParaBusca, invalidarCacheMusicasBusca } from '../services/buscaService';
+import { normalizar, pontuar } from '../utils/busca';
+import { autorizarMontagem } from '../utils/montagemGuard';
 
 // Ordenação da lista de arquivos MIDI (só na exibição).
 const OPCOES_ORDENACAO_MIDI = [
@@ -71,8 +74,13 @@ export default function CriarTabs() {
 
   const [sugestoes, setSugestoes] = useState([]);
   const debounceRef = useRef(null);
+  // Valor atual do campo, para descartar respostas que chegam fora de ordem.
+  const musicaRef = useRef(musica);
+  useEffect(() => { musicaRef.current = musica; });
 
   // ===== BUSCA COM DEBOUNCE PARA SUGESTÕES =====
+  // Casa e ranqueia no cliente (acento-insensível) sobre a lista leve
+  // cacheada; depois hidrata só as 5 escolhidas (com a letra).
   useEffect(() => {
     if (!musica || musica.trim().length < 2) {
       setSugestoes([]);
@@ -84,15 +92,34 @@ export default function CriarTabs() {
     debounceRef.current = setTimeout(async () => {
       const termo = musica.trim();
       if (termo.length < 2) return;
+      const termoNorm = normalizar(termo);
 
-      const { data, error } = await buscarSugestoesMusicas(termo);
+      try {
+        const todas = await listarMusicasParaBusca();
+        if (normalizar(musicaRef.current.trim()) !== termoNorm) return;
 
-      if (error) {
-        console.error("Erro Supabase:", error);
-        return;
+        const ids = todas
+          .map((m) => ({ m, s: pontuar(termoNorm, m.nomeNorm, termo, m.nome) }))
+          .filter((x) => x.s > 0)
+          .sort((a, b) => b.s - a.s)
+          .slice(0, 5)
+          .map((x) => x.m.id);
+
+        if (ids.length === 0) {
+          setSugestoes([]);
+          return;
+        }
+
+        const { data, error } = await buscarMusicasPorIds(ids);
+        if (error) throw error;
+        if (normalizar(musicaRef.current.trim()) !== termoNorm) return;
+
+        const porId = new Map((data || []).map((r) => [r.id, r]));
+        setSugestoes(ids.map((id) => porId.get(id)).filter(Boolean));
+      } catch (err) {
+        console.error('Erro ao buscar sugestões:', err);
       }
-      setSugestoes(data || []);
-    }, 750);
+    }, 300);
 
     return () => clearTimeout(debounceRef.current);
   }, [musica]);
@@ -182,6 +209,7 @@ export default function CriarTabs() {
         });
 
         if (errMusica) throw errMusica;
+        invalidarCacheMusicasBusca();
         currentMusicaId = novaMusica.id;
         setMusicaId(currentMusicaId);
       }
@@ -260,9 +288,13 @@ export default function CriarTabs() {
         });
 
         if (errMusica) throw errMusica;
+        invalidarCacheMusicasBusca();
         currentMusicaId = novaMusica.id;
       }
 
+      // Libera a entrada na tela de montagem só para esta navegação (link
+      // direto / reload não passam por aqui e são barrados lá).
+      autorizarMontagem();
       navigateAnimated('/MontarTablatura', {
         expand: true,
         state: {
@@ -286,11 +318,42 @@ export default function CriarTabs() {
   // de MIDI aparece na direita (dentro do mesmo retângulo).
   const mostrarMidi = Boolean(musica.trim() && autorMusica.trim());
 
+  // Entrada animada do painel de MIDI no modo empilhado: monta colapsado
+  // (0fr / opacity 0) e, um frame depois, expande — em vez de surgir de uma
+  // vez. Em tela larga a animação continua sendo a da largura do retângulo.
+  const [midiVisivel, setMidiVisivel] = useState(false);
+  useEffect(() => {
+    if (!mostrarMidi) return undefined;
+    // Pequeno atraso pro navegador pintar o estado colapsado (0fr/opacity 0)
+    // antes de virar a chave — assim a transição roda. setTimeout (não rAF)
+    // pra não travar quando a aba está em segundo plano.
+    const id = setTimeout(() => setMidiVisivel(true), 30);
+    // Ao sumir (mostrarMidi -> false), volta pro estado colapsado pra que a
+    // próxima aparição anime de novo.
+    return () => {
+      clearTimeout(id);
+      setMidiVisivel(false);
+    };
+  }, [mostrarMidi]);
+
   // Estilo do retângulo memoizado: a página re-renderiza a cada tecla/efeito
   // com debounce; sem memo, o objeto é recriado toda vez e o React re-aplica o
   // `transition`, o que pode reiniciar a animação de largura. Referência
   // estável => a transição roda uma vez só.
   const estiloShell = useMemo(() => shellCard(mostrarMidi, isStacked), [mostrarMidi, isStacked]);
+
+  // Rodapé com o botão "MONTAR TABLATURA". Em tela larga fica preso no fim do
+  // painel do formulário; empilhado, é renderizado depois do painel de MIDI
+  // (que por sua vez vem depois da letra) — daí ser um helper reutilizável.
+  const renderRodape = () => (
+    <div style={formRodape}>
+      <button style={buttonStyle} onClick={handleMontarTablatura} disabled={processandoMin}>
+        {processandoMin ? `Processando${pontosProc}` : 'MONTAR TABLATURA'}
+      </button>
+
+      <p style={linkStyle} onClick={() => navigateAnimated('/', { expand: false })}>Cancelar e Voltar</p>
+    </div>
+  );
 
   return (
     <div style={pageStyle}>
@@ -313,7 +376,11 @@ export default function CriarTabs() {
           {/* Título FIXO — não rola com o conteúdo */}
           <h2 style={shellTitulo}>Criar Nova Tablatura</h2>
 
-          <div style={{ ...shellCorpo, flexDirection: isStacked ? 'column' : 'row' }}>
+          {/* row-reverse: o painel de MIDI fica à ESQUERDA e o formulário à
+              direita. Empilhado (column): formulário → MIDI → rodapé.
+              justifyContent center: os dois painéis de largura fixa ficam
+              centralizados no card (sem sobrar folga só de um lado). */}
+          <div style={{ ...shellCorpo, flexDirection: isStacked ? 'column' : 'row-reverse', justifyContent: isStacked ? 'flex-start' : 'center' }}>
 
             {/* PAINEL DO FORMULÁRIO — campos rolam; botões ficam fixos embaixo */}
             <div style={{ ...formPanel(mostrarMidi), ...(isStacked ? { flex: 'none', width: '100%' } : {}) }}>
@@ -371,21 +438,22 @@ export default function CriarTabs() {
                 </div>
               </div>
 
-              {/* Rodapé FIXO do formulário */}
-              <div style={formRodape}>
-                <button style={buttonStyle} onClick={handleMontarTablatura} disabled={processandoMin}>
-                  {processandoMin ? `Processando${pontosProc}` : 'MONTAR TABLATURA'}
-                </button>
-
-                {!usuario && <p style={{ color: 'var(--color-danger)', fontSize: 13, marginTop: 12, textAlign: 'center', fontWeight: 'bold' }}>* Login necessário para salvar</p>}
-                <p style={linkStyle} onClick={() => navigateAnimated('/', { expand: false })}>Cancelar e Voltar</p>
-              </div>
+              {/* Rodapé FIXO do formulário — só em tela larga. Empilhado, ele
+                  vai depois do painel de MIDI (renderRodape mais abaixo). */}
+              {!isStacked && renderRodape()}
             </div>
             {/* fim do painel do formulário */}
 
-            {/* PAINEL DO MIDI — aparece dentro do retângulo, à direita.
-                Subtítulo fixo; só a lista de opções rola. */}
+            {/* PAINEL DO MIDI — em tela larga fica à esquerda (row-reverse);
+                empilhado, entra aqui entre a letra e o rodapé, com animação
+                de abertura (grid 0fr -> 1fr + fade). Os dois wrappers usam
+                `display: contents` em tela larga pra não mudar o layout de lá
+                (o painel continua sendo o item flex direto). */}
             {mostrarMidi && (
+              <div style={isStacked
+                ? { display: 'grid', gridTemplateRows: midiVisivel ? '1fr' : '0fr', opacity: midiVisivel ? 1 : 0, transition: 'grid-template-rows 350ms ease, opacity 300ms ease' }
+                : { display: 'contents' }}>
+              <div style={isStacked ? { overflow: 'hidden' } : { display: 'contents' }}>
               <div style={{ ...midiPanel, ...(isStacked ? { flex: 'none', width: '100%' } : {}) }}>
                 <h3 style={midiTitulo}>
                   Arquivos MIDI: {musica}
@@ -408,13 +476,22 @@ export default function CriarTabs() {
                 )}
 
                 <div style={{ ...midiScroll, ...(isStacked ? { overflow: 'visible', flex: 'none' } : {}) }}>
-                <div style={midiListContainer}>
+                {/* key muda ao selecionar/trocar => o React remonta e a
+                    animação .ht-fade-swap toca, em vez de trocar de repente. */}
+                <div
+                  key={midiSelecionado ? `midi-sel-${midiSelecionado.id}` : 'midi-lista'}
+                  className="ht-fade-swap"
+                  style={midiListContainer}
+                >
 
               {midiSelecionado ? (
                 <div style={{ ...midiCardStyle, border: '2px solid var(--color-primary)', backgroundColor: 'var(--color-bg-highlight)' }}>
                   <div style={iconBoxPrimary}>🎵</div>
                   <div style={{ flex: 1, minWidth: 0, paddingLeft: 15, textAlign: 'left', overflow: 'hidden' }}>
-                    <span style={{ color: 'var(--color-text-main)', fontWeight: 'bold', display: 'block', fontSize: '14px' }}>
+                    <span
+                      title={midiSelecionado.arquivo_midi}
+                      style={{ color: 'var(--color-text-main)', fontWeight: 'bold', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '14px' }}
+                    >
                       {midiSelecionado.arquivo_midi}
                     </span>
                     <small style={{ color: 'var(--color-primary)', fontSize: 12, fontWeight: 'bold' }}>MIDI Selecionado</small>
@@ -444,7 +521,7 @@ export default function CriarTabs() {
                     <div key={midi.id} style={midiCardStyle}>
                       <div style={iconBoxSecondary}>🎵</div>
                       <div style={{ flex: 1, minWidth: 0, paddingLeft: 15, textAlign: 'left', overflow: 'hidden' }}>
-                        <span style={{ color: 'var(--color-text-main)', fontWeight: 'bold', display: 'block', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', fontSize: '14px' }}>
+                        <span title={midi.arquivo_midi} style={{ color: 'var(--color-text-main)', fontWeight: 'bold', display: 'block', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', fontSize: '14px' }}>
                           {midi.arquivo_midi}
                         </span>
 
@@ -478,19 +555,25 @@ export default function CriarTabs() {
                       </button>
                     </div>
                   ))}
-                </>
-              )}
 
-                  {arquivosMidi.length === 0 && !midiSelecionado && (
+                  {arquivosMidi.length === 0 && (
                     <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', marginTop: 20, fontSize: 14, lineHeight: '1.5' }}>
                       Nenhum arquivo MIDI encontrado.<br />
                       {!musicaId && <strong style={{ color: 'var(--color-danger)' }}>Insira a letra ao lado para liberar uploads!</strong>}
                     </p>
                   )}
+                </>
+              )}
                 </div>
                 </div>
               </div>
+              </div>
+              </div>
             )}
+
+            {/* Empilhado: o rodapé (MONTAR TABLATURA) vem DEPOIS do painel de
+                MIDI, que vem depois da letra. */}
+            {isStacked && renderRodape()}
 
           </div>
           {/* fim do corpo do retângulo */}
@@ -512,16 +595,16 @@ const pageStyle = { position: 'absolute', top: 0, left: 0, width: '100%', minHei
 const contentWrapper = { width: '100%', margin: '0 auto' };
 
 // Retângulo único. Colapsado ocupa 500px (só o formulário); quando o MIDI
-// entra em cena expande até 1280px (cap pra não esticar indefinidamente em
-// telas largas/ultrawide/TV — abaixo de ~1320px de viewport nem chega a
-// limitar). A animação é feita em max-width (500 -> 1280), com width:100%
-// constante — transicionar width entre px e % não anima de forma confiável.
+// entra em cena expande até 1040px — o suficiente pros dois painéis de 460px
+// + gap + padding, sem sobrar espaço vazio dentro do card. A animação é feita
+// em max-width (500 -> 1040), com width:100% constante — transicionar width
+// entre px e % não anima de forma confiável.
 // stacked (abaixo de BP_STACK): o card deixa de ter altura limitada e a
 // página inteira rola no fluxo normal, em vez de dois painéis rolando dentro
 // de uma caixa de altura fixa.
 const shellCard = (expandido, stacked) => ({
   width: '100%',
-  maxWidth: expandido ? '1280px' : '500px',
+  maxWidth: expandido ? '1040px' : '500px',
   margin: '0 auto',
   maxHeight: stacked ? 'none' : 'calc(100vh - 150px)',
   backgroundColor: 'var(--color-bg-card)',
@@ -550,12 +633,12 @@ const formPanel = (expandido) => ({
 const formScroll = { flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', paddingRight: '6px', display: 'flex', flexDirection: 'column' };
 const formRodape = { flexShrink: 0, paddingTop: '4px' };
 
-// Painel do MIDI: cresce e preenche o espaço revelado pela expansão. O
-// subtítulo fica fixo (midiTitulo) e só a lista de opções rola (midiScroll).
+// Painel do MIDI: largura FIXA, igual à do formulário (460px, encolhível). Não
+// "molda" com o conteúdo — nomes de MIDI longos são cortados com "..." (e o
+// nome completo aparece no title/hover). O subtítulo fica fixo (midiTitulo) e
+// só a lista de opções rola (midiScroll).
 const midiPanel = {
-  flexGrow: 1,
-  flexShrink: 1,
-  flexBasis: 0,
+  flex: '0 1 460px',
   minWidth: 0,
   minHeight: 0,
   display: 'flex',

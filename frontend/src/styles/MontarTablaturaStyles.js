@@ -12,7 +12,7 @@ export const btnSecondary = { padding: '14px 24px', backgroundColor: 'var(--colo
 
 export const cardNota = { padding: '6px 12px', backgroundColor: 'var(--color-primary)', color: 'var(--color-text-on-primary)', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', userSelect: 'none', boxShadow: '0 2px 4px var(--shadow-note-default)', fontSize: '13px', transition: 'box-shadow 0.05s ease, transform 0.05s ease, background-color 0.05s ease, opacity 0.1s ease' };
 export const linhaContainer = { display: 'flex', flexDirection: 'column', gap: '5px' };
-export const zonaDrop = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', minHeight: '38px', padding: '6px 10px', backgroundColor: 'var(--color-bg-card)', border: '2px dashed var(--color-border)', borderRadius: '10px', transition: 'background-color 0.2s' };
+export const zonaDrop = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', minHeight: '26px', padding: '4px 10px', backgroundColor: 'var(--color-bg-card)', border: '2px dashed var(--color-border)', borderRadius: '10px', transition: 'background-color 0.2s' };
 export const cardNotaAlocada = { padding: '6px 12px', backgroundColor: 'var(--color-secondary-blue)', color: 'var(--color-text-on-primary)', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', boxShadow: '0 2px 4px var(--shadow-note-default)', fontSize: '14px' };
 export const inputNotaManual = { width: '40px', padding: '6px', borderRadius: '6px', border: 'var(--border-width-base) solid var(--color-border)', textAlign: 'center', outline: 'none', fontWeight: 'bold', color: 'var(--color-text-main)' };
 export const textoLetra = { fontSize: '16px', color: 'var(--color-text-main)', paddingLeft: '5px', whiteSpace: 'pre-wrap' };
@@ -49,6 +49,44 @@ export const overlayBarraWrap = { flexShrink: 0, marginBottom: '20px', width: '1
 // não ficar cortado pela borda do container com scroll.
 export const overlayListaWrap = { flex: 1, minHeight: 0, overflowY: 'auto', width: '100%', padding: '10px 20px 10px 10px', margin: '-10px -20px -10px -10px' };
 
+/* === Player compacto + montagem linha-a-linha (layout empilhado) === */
+// Reaproveitado do antigo "foco numa parte". No empilhado a coluna direita
+// vira: player enxuto (velocidade · play só ícone · barra) + navegação de
+// UMA linha por vez com setas.
+export const overlayFocoHeader = { display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 };
+// play e velocidade: mesma "pegada" quadrada (48px).
+export const btnPlayIconeFoco = { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '48px', height: '48px', flexShrink: 0, padding: 0, fontSize: '17px', lineHeight: 1, backgroundColor: 'var(--color-primary)', color: 'var(--color-text-on-primary)', border: 'none', borderRadius: '12px', cursor: 'pointer', boxShadow: '0 2px 6px var(--shadow-button-primary-soft)' };
+export const overlayFocoVelocidade = { width: '48px', height: '48px', flexShrink: 0, padding: '4px', borderRadius: '12px', border: 'var(--border-width-base) solid var(--color-border)', backgroundColor: 'var(--color-bg-card)', color: 'var(--color-text-main)', fontSize: '12px', fontWeight: 'bold', textAlign: 'center', textAlignLast: 'center', appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' };
+export const overlayFocoBarraWrap = { flex: 1, minWidth: 0 };
+export const overlayFocoSecaoTitulo = { margin: 0, fontSize: '13px', fontWeight: 'bold', color: 'var(--color-text-muted)', flexShrink: 0 };
+
+// Parte ativa específica mostrada acima do "Montar tablatura" (empilhado):
+// nome + ícone clicável abre o menu pra trocar de parte; abaixo, as notas
+// dela numa caixa compacta com rolagem própria.
+export const overlayFocoParteWrap = { position: 'relative', flexShrink: 0, alignSelf: 'flex-start', maxWidth: '100%' };
+export const overlayFocoParteBtn = { display: 'flex', alignItems: 'center', gap: '6px', maxWidth: '100%', padding: '4px 8px', margin: 0, background: 'none', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '15px', fontWeight: 'bold', color: 'var(--color-primary)' };
+export const overlayFocoParteNome = { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+export const overlayFocoParteBackdrop = { position: 'fixed', inset: 0, zIndex: 1 };
+export const overlayFocoParteMenu = { position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 2, minWidth: '200px', maxWidth: '85vw', maxHeight: '50vh', overflowY: 'auto', backgroundColor: 'var(--color-bg-card)', border: 'var(--border-width-base) solid var(--color-border-alt)', borderRadius: '10px', boxShadow: '0 10px 25px var(--shadow-note-default)', padding: '6px' };
+export const overlayFocoParteOpcao = { display: 'block', width: '100%', textAlign: 'left', padding: '9px 10px', background: 'none', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', color: 'var(--color-text-main)' };
+export const overlayFocoParteOpcaoAtiva = { backgroundColor: 'var(--color-bg-icon-secondary)', color: 'var(--color-primary)', fontWeight: 'bold' };
+export const overlayFocoNotasCompacta = { marginTop: '10px', maxHeight: '30vh', overflowY: 'auto', display: 'flex', flexWrap: 'wrap', alignContent: 'flex-start', gap: '8px', padding: '10px', backgroundColor: 'var(--color-bg-card-tertiary)', border: 'var(--border-width-base) solid var(--color-border-alt)', borderRadius: '10px' };
+
+// A MESMA estrutura de montagem da coluna direita, uma linha por vez. Setas
+// nas laterais; abaixo de 760px viram uma linha própria
+// (overlayFocoLinhaWrapColuna + overlayFocoSetasRow).
+export const overlayFocoLinhaWrap = { flex: '2 1 0', minHeight: 0, display: 'flex', alignItems: 'stretch', gap: '8px' };
+export const overlayFocoLinhaWrapColuna = { flexDirection: 'column' };
+export const overlayFocoSetasRow = { display: 'flex', gap: '8px', flexShrink: 0 };
+export const overlayFocoLinhaConteudo = { flex: 1, minWidth: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '12px', backgroundColor: 'var(--color-bg-card-tertiary)', border: 'var(--border-width-base) solid var(--color-border-alt)', borderRadius: '12px' };
+export const overlayFocoSeta = { flexShrink: 0, width: '44px', minHeight: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, backgroundColor: 'var(--color-bg-card-alt)', color: 'var(--color-primary)', border: 'var(--border-width-base) solid var(--color-border-alt)', borderRadius: '12px', cursor: 'pointer' };
+export const overlayFocoSetaOff = { opacity: 0.35, cursor: 'not-allowed', color: 'var(--color-text-muted)' };
+
+// Número da linha, à esquerda de cada "Linha de nota e letra" (aparece em todo
+// lugar que usa renderLinhaTablatura: coluna direita e tela de foco).
+export const linhaTablaturaRow = { display: 'flex', gap: '8px', alignItems: 'stretch' };
+export const numeroLinha = { flexShrink: 0, width: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold', color: 'var(--color-text-slate-2)', fontVariantNumeric: 'tabular-nums', userSelect: 'none' };
+
 export const cardParteStyle ={ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--color-bg-card)', padding: '10px 14px', borderRadius: '8px', borderWidth: '2px', borderStyle: 'solid', borderColor: 'var(--color-border-soft)', marginBottom: '2px', cursor: 'pointer', transition: 'box-shadow 0.08s ease, border-color 0.08s ease, transform 0.08s ease' };
 export const cardParteNome = { fontWeight: 'bold', fontSize: '14px', color: 'var(--color-text-slate-7)' };
 export const btnPlayAll = { padding: '6px 12px', backgroundColor: 'var(--color-primary)', color: 'var(--color-text-on-primary)', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 6px var(--shadow-button-primary-soft)', transition: 'background-color 0.2s' };
@@ -74,6 +112,8 @@ export const tempoLabel = { display: 'flex', justifyContent: 'flex-end', marginT
 
 export const modalOverlay = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'var(--color-overlay-modal-strong)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 };
 export const modalContent = { backgroundColor: 'var(--color-bg-card)', padding: '30px', borderRadius: '16px', width: '90%', maxWidth: '550px', boxShadow: '0 10px 25px var(--shadow-note-selected)' };
+// ✕ do popup de Configurações da Gaita (só aparece após a 1ª aplicação).
+export const modalConfigFechar = { position: 'absolute', top: '12px', right: '12px', width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, background: 'none', border: 'none', borderRadius: '8px', fontSize: '15px', lineHeight: 1, color: 'var(--color-text-muted)', cursor: 'pointer' };
 export const btnCancelarModal = { padding: '10px 18px', backgroundColor: 'var(--color-bg-danger-soft)', color: 'var(--color-text-danger-strong)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' };
 export const btnConfirmarModal = { padding: '10px 18px', backgroundColor: 'var(--color-primary)', color: 'var(--color-text-on-primary)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 4px 10px var(--shadow-button-primary-soft)' };
 

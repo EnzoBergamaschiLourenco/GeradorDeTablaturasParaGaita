@@ -1,11 +1,14 @@
 import { supabase } from '../supabaseClient';
 
-export async function buscarSugestoesMusicas(termo) {
+// Hidrata as músicas escolhidas pelo autocomplete (que ranqueia no cliente
+// sobre a lista leve de buscaService) com os campos completos, inclusive a
+// letra. Query por chave primária — barata mesmo com catálogo grande.
+export async function buscarMusicasPorIds(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return { data: [], error: null };
   return supabase
     .from('musicas')
     .select('id, nome, autor, letra')
-    .ilike('nome', `%${termo}%`)
-    .limit(5);
+    .in('id', ids);
 }
 
 export async function buscarMusicaExata({ nome, autor }) {

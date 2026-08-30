@@ -2,9 +2,11 @@ import { useState, useRef, useEffect } from 'react';
 import CustomModal from '../components/CustomModal';
 import TopBar, { TOPBAR_CLEARANCE } from '../components/TopBar';
 import { useAnimatedNavigate, fadeStyle } from '../hooks/useAnimatedNavigate';
+import { useIsCompactBar } from '../hooks/useMediaQuery';
 import { useCarregamentoMinimo, usePontinhos } from '../hooks/useCarregamento';
 import { registrarUsuario, buscarUsuarioPorCredenciais } from '../services/authService';
 import { useModal } from '../hooks/useModal';
+import { REGRAS_SENHA, requisitosNaoAtendidos, senhaAtendeRequisitos } from '../utils/senha';
 
 // Duração do fade usado ao trocar entre os modos (login/cadastro/esqueci
 // senha) DENTRO do mesmo card — mais curta que CONTENT_FADE_MS (que é do
@@ -16,18 +18,10 @@ const MODE_FADE_MS = 200;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const emailValido = (valor) => EMAIL_REGEX.test(valor.trim());
 
-// Política de senha do cadastro (não se aplica ao login, que só confere uma
-// senha já existente). Cada regra alimenta tanto a validação de submit
-// quanto a checklist ao vivo abaixo do campo.
-const REGRAS_SENHA = [
-  { chave: 'tamanho', label: 'Mínimo de 8 caracteres', teste: (s) => s.length >= 8 },
-  { chave: 'maiuscula', label: 'Uma letra maiúscula', teste: (s) => /[A-Z]/.test(s) },
-  { chave: 'minuscula', label: 'Uma letra minúscula', teste: (s) => /[a-z]/.test(s) },
-  { chave: 'numero', label: 'Um número', teste: (s) => /[0-9]/.test(s) },
-  { chave: 'especial', label: 'Um caractere especial', teste: (s) => /[^A-Za-z0-9]/.test(s) }
-];
-const requisitosNaoAtendidos = (senha) => REGRAS_SENHA.filter((r) => !r.teste(senha));
-const senhaAtendeRequisitos = (senha) => requisitosNaoAtendidos(senha).length === 0;
+// Política de senha (REGRAS_SENHA / requisitosNaoAtendidos /
+// senhaAtendeRequisitos) mora em utils/senha.js — compartilhada com a troca
+// de senha no Perfil. Cada regra alimenta tanto a validação de submit quanto
+// a checklist ao vivo abaixo do campo.
 
 const bordaInvalida = { border: '2px solid var(--color-danger)' };
 const bordaValida = { border: '2px solid var(--color-success)' };
@@ -98,6 +92,10 @@ export default function Login() {
   const processandoMin = useCarregamentoMinimo(loading);
   const pontosProc = usePontinhos(processandoMin);
   const { expanded, contentVisible, navigateAnimated } = useAnimatedNavigate(true);
+  // Mesmo recuo lateral da barra de menu (20px, ou 12px em telas estreitas)
+  // — o card nunca encosta nas bordas, por menor que fique a tela.
+  const compact = useIsCompactBar();
+  const recuoLateral = compact ? 12 : 20;
 
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
@@ -244,6 +242,8 @@ export default function Login() {
         // começa logo abaixo do respiro de TOPBAR_CLEARANCE.
         alignItems: 'flex-start',
         paddingTop: `${TOPBAR_CLEARANCE}px`,
+        paddingLeft: `${recuoLateral}px`,
+        paddingRight: `${recuoLateral}px`,
         boxSizing: 'border-box',
         overflowY: 'auto'
       }}
