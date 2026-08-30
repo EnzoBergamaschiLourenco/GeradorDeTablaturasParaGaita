@@ -3,6 +3,7 @@ import CustomModal from '../components/CustomModal';
 import { useCarregamentoMinimo, usePontinhos } from '../hooks/useCarregamento';
 import TopBar, { TOPBAR_CLEARANCE } from '../components/TopBar';
 import { useAnimatedNavigate, fadeStyle } from '../hooks/useAnimatedNavigate';
+import { useIsStacked } from '../hooks/useMediaQuery';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
 import {
@@ -40,9 +41,10 @@ function ordenarMidis(lista, criterio) {
 }
 
 export default function CriarTabs() {
-  const { modalConfig, showAlert, closeModal } = useModal();
+  const { modalConfig, showAlert, showConfirm, closeModal } = useModal();
 
   const { expanded, contentVisible, navigateAnimated } = useAnimatedNavigate(true);
+  const isStacked = useIsStacked();
   const [loading, setLoading] = useState(false);
   const { usuario } = useAuthUser();
 
@@ -218,8 +220,17 @@ export default function CriarTabs() {
   // ===== AÇÃO DE REDIRECIONAR / MONTAR TABLATURA =====
   const handleMontarTablatura = async () => {
     if (!usuario) {
-      showAlert("Você precisa estar logado para montar tablaturas!", "Aviso", "info");
-      navigateAnimated('/login', { expand: true });
+      // Não empurra pro login direto: o usuário decide se vai fazer login
+      // agora ou se fecha o popup (✕) e continua onde estava.
+      showConfirm('Você precisa estar logado para montar tablaturas.', {
+        title: 'Entrar na conta',
+        type: 'info',
+        confirmLabel: 'Fazer login',
+        onConfirm: () => {
+          closeModal();
+          navigateAnimated('/login', { expand: true });
+        }
+      });
       return;
     }
 
@@ -279,7 +290,7 @@ export default function CriarTabs() {
   // com debounce; sem memo, o objeto é recriado toda vez e o React re-aplica o
   // `transition`, o que pode reiniciar a animação de largura. Referência
   // estável => a transição roda uma vez só.
-  const estiloShell = useMemo(() => shellCard(mostrarMidi), [mostrarMidi]);
+  const estiloShell = useMemo(() => shellCard(mostrarMidi, isStacked), [mostrarMidi, isStacked]);
 
   return (
     <div style={pageStyle}>
@@ -302,12 +313,12 @@ export default function CriarTabs() {
           {/* Título FIXO — não rola com o conteúdo */}
           <h2 style={shellTitulo}>Criar Nova Tablatura</h2>
 
-          <div style={shellCorpo}>
+          <div style={{ ...shellCorpo, flexDirection: isStacked ? 'column' : 'row' }}>
 
             {/* PAINEL DO FORMULÁRIO — campos rolam; botões ficam fixos embaixo */}
-            <div style={formPanel(mostrarMidi)}>
+            <div style={{ ...formPanel(mostrarMidi), ...(isStacked ? { flex: 'none', width: '100%' } : {}) }}>
 
-              <div style={formScroll}>
+              <div style={{ ...formScroll, ...(isStacked ? { overflow: 'visible', flex: 'none' } : {}) }}>
                 <div style={{ position: 'relative' }}>
                   <label style={labelStyle}>Nome da Música</label>
                   <input
@@ -375,7 +386,7 @@ export default function CriarTabs() {
             {/* PAINEL DO MIDI — aparece dentro do retângulo, à direita.
                 Subtítulo fixo; só a lista de opções rola. */}
             {mostrarMidi && (
-              <div style={midiPanel}>
+              <div style={{ ...midiPanel, ...(isStacked ? { flex: 'none', width: '100%' } : {}) }}>
                 <h3 style={midiTitulo}>
                   Arquivos MIDI: {musica}
                 </h3>
@@ -396,13 +407,13 @@ export default function CriarTabs() {
                   </label>
                 )}
 
-                <div style={midiScroll}>
+                <div style={{ ...midiScroll, ...(isStacked ? { overflow: 'visible', flex: 'none' } : {}) }}>
                 <div style={midiListContainer}>
 
               {midiSelecionado ? (
                 <div style={{ ...midiCardStyle, border: '2px solid var(--color-primary)', backgroundColor: 'var(--color-bg-highlight)' }}>
                   <div style={iconBoxPrimary}>🎵</div>
-                  <div style={{ flex: 1, paddingLeft: 15, textAlign: 'left', overflow: 'hidden' }}>
+                  <div style={{ flex: 1, minWidth: 0, paddingLeft: 15, textAlign: 'left', overflow: 'hidden' }}>
                     <span style={{ color: 'var(--color-text-main)', fontWeight: 'bold', display: 'block', fontSize: '14px' }}>
                       {midiSelecionado.arquivo_midi}
                     </span>
@@ -432,7 +443,7 @@ export default function CriarTabs() {
                   {arquivosMidiOrdenados.map((midi) => (
                     <div key={midi.id} style={midiCardStyle}>
                       <div style={iconBoxSecondary}>🎵</div>
-                      <div style={{ flex: 1, paddingLeft: 15, textAlign: 'left', overflow: 'hidden' }}>
+                      <div style={{ flex: 1, minWidth: 0, paddingLeft: 15, textAlign: 'left', overflow: 'hidden' }}>
                         <span style={{ color: 'var(--color-text-main)', fontWeight: 'bold', display: 'block', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', fontSize: '14px' }}>
                           {midi.arquivo_midi}
                         </span>
@@ -492,30 +503,38 @@ export default function CriarTabs() {
 }
 
 /* ===== ESTILOS ===== */
-const pageStyle = { position: 'absolute', top: 0, left: 0, width: '100vw', minHeight: '100vh', backgroundColor: 'var(--color-bg-page)', display: 'flex', justifyContent: 'center', alignItems: 'center', fontFamily: 'Arial, sans-serif', padding: '40px 20px', paddingTop: `${TOPBAR_CLEARANCE}px`, boxSizing: 'border-box', overflowX: 'hidden' };
+// alignItems:flex-start (não center): o card cresce bastante quando o painel
+// de MIDI aparece; centralizado, o topo era empurrado pra cima da barra de
+// menu (mesmo motivo de Login/Perfil). width:100% (não 100vw) evita a
+// scrollbar horizontal quando há scroll vertical.
+const pageStyle = { position: 'absolute', top: 0, left: 0, width: '100%', minHeight: '100vh', backgroundColor: 'var(--color-bg-page)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', fontFamily: 'Arial, sans-serif', padding: '40px 20px', paddingTop: `${TOPBAR_CLEARANCE}px`, boxSizing: 'border-box', overflowX: 'hidden' };
 
 const contentWrapper = { width: '100%', margin: '0 auto' };
 
 // Retângulo único. Colapsado ocupa 500px (só o formulário); quando o MIDI
-// entra em cena expande até o limite da tela — 20px de folga em cada lateral,
-// igual à barra de menu (pageStyle já tem padding lateral de 20px). O título
-// fica fixo e só o corpo rola.
-const shellCard = (expandido) => ({
-  width: expandido ? '100%' : '500px',
-  maxWidth: '100%',
+// entra em cena expande até 1280px (cap pra não esticar indefinidamente em
+// telas largas/ultrawide/TV — abaixo de ~1320px de viewport nem chega a
+// limitar). A animação é feita em max-width (500 -> 1280), com width:100%
+// constante — transicionar width entre px e % não anima de forma confiável.
+// stacked (abaixo de BP_STACK): o card deixa de ter altura limitada e a
+// página inteira rola no fluxo normal, em vez de dois painéis rolando dentro
+// de uma caixa de altura fixa.
+const shellCard = (expandido, stacked) => ({
+  width: '100%',
+  maxWidth: expandido ? '1280px' : '500px',
   margin: '0 auto',
-  maxHeight: 'calc(100vh - 150px)',
+  maxHeight: stacked ? 'none' : 'calc(100vh - 150px)',
   backgroundColor: 'var(--color-bg-card)',
-  padding: '40px',
+  padding: 'clamp(20px, 5vw, 40px)',
   borderRadius: '24px',
   boxShadow: '0 15px 40px var(--shadow-card)',
   boxSizing: 'border-box',
   display: 'flex',
   flexDirection: 'column',
-  overflow: 'hidden',
-  transition: 'width 350ms ease'
+  overflow: stacked ? 'visible' : 'hidden',
+  transition: 'max-width 350ms ease'
 });
-const shellTitulo = { color: 'var(--color-primary)', margin: '0 0 25px', textAlign: 'center', fontWeight: 'bold', fontSize: '32px', flexShrink: 0 };
+const shellTitulo = { color: 'var(--color-primary)', margin: '0 0 25px', textAlign: 'center', fontWeight: 'bold', fontSize: 'clamp(22px, 6vw, 32px)', flexShrink: 0 };
 const shellCorpo = { flex: 1, minHeight: 0, display: 'flex', gap: '30px', alignItems: 'stretch' };
 // Formulário: ocupa tudo enquanto colapsado; ao expandir vira uma coluna de
 // ~460px na esquerda. Sem transição própria — a animação de largura do
@@ -547,7 +566,7 @@ const midiPanel = {
   padding: '24px',
   boxSizing: 'border-box'
 };
-const midiTitulo = { color: 'var(--color-primary)', margin: '0 0 14px', textAlign: 'center', fontWeight: 'bold', fontSize: '22px', flexShrink: 0 };
+const midiTitulo = { color: 'var(--color-primary)', margin: '0 0 14px', textAlign: 'center', fontWeight: 'bold', fontSize: 'clamp(18px, 4.5vw, 22px)', flexShrink: 0 };
 const midiScroll = { flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', paddingRight: '4px' };
 const ordenarMidiLabel = { flexShrink: 0, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '13px', color: 'var(--color-text-muted)', marginBottom: '14px' };
 const ordenarMidiSelect = { padding: '6px 8px', borderRadius: '8px', border: 'var(--border-width-base) solid var(--color-border)', fontSize: '13px', backgroundColor: 'var(--color-bg-card)', color: 'var(--color-text-main)', cursor: 'pointer', flex: 1, minWidth: 0 };

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useTheme } from '../hooks/useTheme';
+import { useIsCompactBar } from '../hooks/useMediaQuery';
 
 // Duração de cada etapa da animação (em ms), usada tanto no CSS abaixo quanto
 // por quem dispara uma navegação animada (useAnimatedNavigate) — mantendo os
@@ -49,6 +50,9 @@ export function TopBarMask() {
 export default function AnimatedMenuBar({ expanded, onTitleClick, onProfileClick, onLoginClick }) {
   const { usuario } = useAuthUser();
   const { tema, setTema, altoContraste, setAltoContraste } = useTheme();
+  // Abaixo de 600px a pílula/chip encolhem os elementos internos (offsets,
+  // altura, título, toggles, avatar) sem mudar a geometria em telas maiores.
+  const compact = useIsCompactBar();
 
   const perfilChipRef = useRef(null);
   const [perfilChipWidth, setPerfilChipWidth] = useState(null);
@@ -57,7 +61,7 @@ export default function AnimatedMenuBar({ expanded, onTitleClick, onProfileClick
     if (perfilChipRef.current) {
       setPerfilChipWidth(perfilChipRef.current.getBoundingClientRect().width);
     }
-  }, [usuario]);
+  }, [usuario, compact]);
 
   return (
     <>
@@ -68,11 +72,13 @@ export default function AnimatedMenuBar({ expanded, onTitleClick, onProfileClick
       <div
         style={{
           position: 'fixed',
-          top: '20px',
-          right: '20px',
+          top: compact ? '12px' : '20px',
+          right: compact ? '12px' : '20px',
           zIndex: 10,
-          height: '70px',
-          width: expanded ? 'calc(100vw - 40px)' : (perfilChipWidth ? `${perfilChipWidth + 40}px` : 'auto'),
+          height: compact ? '60px' : '70px',
+          width: expanded
+            ? `calc(100vw - ${compact ? '24px' : '40px'})`
+            : (perfilChipWidth ? `${perfilChipWidth + 40}px` : 'auto'),
           backgroundColor: 'var(--color-bg-card)',
           borderRadius: '12px',
           boxShadow: '0 4px 12px var(--shadow-card)',
@@ -86,7 +92,7 @@ export default function AnimatedMenuBar({ expanded, onTitleClick, onProfileClick
           style={{
             position: 'absolute',
             top: 0,
-            left: '20px',
+            left: compact ? '12px' : '20px',
             height: '100%',
             display: 'flex',
             alignItems: 'center',
@@ -96,7 +102,7 @@ export default function AnimatedMenuBar({ expanded, onTitleClick, onProfileClick
             margin: 0,
             cursor: 'pointer',
             color: 'var(--color-primary)',
-            fontSize: '22px',
+            fontSize: 'clamp(15px, 4.8vw, 22px)',
             fontWeight: 'bold',
             fontFamily: 'inherit',
             whiteSpace: 'nowrap',
@@ -118,23 +124,33 @@ export default function AnimatedMenuBar({ expanded, onTitleClick, onProfileClick
       <div
         style={{
           position: 'fixed',
-          top: '20px',
-          right: '20px',
+          top: compact ? '12px' : '20px',
+          right: compact ? '12px' : '20px',
           zIndex: 11,
-          height: '70px',
+          height: compact ? '60px' : '70px',
           display: 'flex',
           alignItems: 'center',
-          padding: '0 20px',
-          boxSizing: 'border-box'
+          padding: compact ? '0 12px' : '0 20px',
+          boxSizing: 'border-box',
+          maxWidth: '100vw'
         }}
       >
-        <div ref={perfilChipRef} style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+        <div
+          ref={perfilChipRef}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: compact ? '6px' : '10px',
+            flexShrink: 0,
+            maxWidth: compact ? 'calc(100vw - 24px)' : undefined
+          }}
+        >
           {/* Tema claro/escuro: um único botão alternando o ícone conforme o
               tema atual (sol amarelo = claro, lua azul-escura = escuro). */}
           <button
             type="button"
             onClick={() => setTema(tema === 'light' ? 'dark' : 'light')}
-            style={iconToggleButtonStyle}
+            style={compact ? { ...iconToggleButtonStyle, width: '34px', height: '34px' } : iconToggleButtonStyle}
             aria-label={tema === 'light' ? 'Ativar tema escuro' : 'Ativar tema claro'}
             title={tema === 'light' ? 'Ativar tema escuro' : 'Ativar tema claro'}
           >
@@ -165,6 +181,7 @@ export default function AnimatedMenuBar({ expanded, onTitleClick, onProfileClick
             onClick={() => setAltoContraste(!altoContraste)}
             style={{
               ...iconToggleButtonStyle,
+              ...(compact ? { width: '34px', height: '34px' } : {}),
               borderColor: altoContraste ? 'var(--color-primary)' : 'var(--color-border-alt)'
             }}
             aria-label="Alternar alto contraste"
@@ -186,12 +203,13 @@ export default function AnimatedMenuBar({ expanded, onTitleClick, onProfileClick
                   src={usuario.foto_perfil}
                   alt="Perfil"
                   style={{
-                    width: '50px',
-                    height: '50px',
+                    width: compact ? '40px' : '50px',
+                    height: compact ? '40px' : '50px',
                     borderRadius: '50%',
                     objectFit: 'cover',
                     border: '2px solid var(--color-primary)',
-                    boxSizing: 'border-box'
+                    boxSizing: 'border-box',
+                    flexShrink: 0
                   }}
                   onError={(e) => {
                     e.target.style.display = 'none';
@@ -203,21 +221,26 @@ export default function AnimatedMenuBar({ expanded, onTitleClick, onProfileClick
                 </svg>
               )}
 
-              <span
-                style={{
-                  fontWeight: 'bold',
-                  fontSize: '14px',
-                  color: 'var(--color-text-main)'
-                }}
-              >
-                {usuario.nome}
-              </span>
+              {/* Em telas estreitas o nome sai (o avatar já é o alvo de toque
+                  pro perfil); assim o chip encolhe e não colide com o título
+                  "HarmonicaTabs" da barra expandida. */}
+              {!compact && (
+                <span
+                  style={{
+                    fontWeight: 'bold',
+                    fontSize: '14px',
+                    color: 'var(--color-text-main)'
+                  }}
+                >
+                  {usuario.nome}
+                </span>
+              )}
             </div>
           ) : (
             <button
               onClick={onLoginClick}
               style={{
-                padding: '12px 24px',
+                padding: compact ? '10px 14px' : '12px 24px',
                 backgroundColor: 'var(--color-primary)',
                 color: 'var(--color-text-on-primary)',
                 border: 'none',
@@ -228,7 +251,7 @@ export default function AnimatedMenuBar({ expanded, onTitleClick, onProfileClick
                 whiteSpace: 'nowrap'
               }}
             >
-              Login / Sign-In
+              {compact ? 'Entrar' : 'Login / Sign-In'}
             </button>
           )}
         </div>

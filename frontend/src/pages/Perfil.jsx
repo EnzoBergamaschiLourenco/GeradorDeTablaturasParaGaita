@@ -216,7 +216,7 @@ export default function Perfil() {
                 <p style={{ color: 'var(--color-text-main)', marginBottom: '20px', fontSize: '15px' }}>
                   Tem certeza que deseja excluir sua conta? Essa ação não pode ser desfeita.
                 </p>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap' }}>
                   <button style={modalCancelButtonStyle} onClick={fecharModalExcluir}>
                     Cancelar
                   </button>
@@ -245,7 +245,7 @@ export default function Perfil() {
                   onChange={(e) => setSenhaConfirmacaoDelete(e.target.value)}
                 />
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap' }}>
                   <button style={modalCancelButtonStyle} onClick={fecharModalExcluir}>
                     Cancelar
                   </button>
@@ -264,7 +264,7 @@ export default function Perfil() {
       )}
 
       <div style={{ ...cardStyle, ...fadeStyle(contentVisible) }}>
-        <h1 style={{ color: 'var(--color-primary)' }}>Meu Perfil</h1>
+        <h1 style={{ color: 'var(--color-primary)', fontSize: 'clamp(28px, 7vw, 56px)' }}>Meu Perfil</h1>
 
         <p style={{ color: 'var(--color-text-muted)' }}>
           Gerencie sua conta
@@ -472,7 +472,7 @@ const cardStyle = {
   width: '100%',
   maxWidth: 420,
   background: 'var(--color-bg-card)',
-  padding: 40,
+  padding: 'clamp(24px, 6vw, 40px)',
   borderRadius: 24,
   textAlign: 'center',
   boxShadow: '0 15px 40px var(--shadow-card)'

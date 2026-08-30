@@ -232,8 +232,6 @@ export default function Login() {
       style={{
         position: 'fixed',
         inset: 0,
-        width: '100vw',
-        height: '100vh',
         backgroundColor: 'var(--color-bg-page)',
         fontFamily: 'Arial, sans-serif',
         display: 'flex',
@@ -265,7 +263,7 @@ export default function Login() {
           width: '100%',
           maxWidth: '420px',
           backgroundColor: 'var(--color-bg-card)',
-          padding: '40px',
+          padding: 'clamp(24px, 6vw, 40px)',
           borderRadius: '24px',
           boxShadow: '0 15px 40px var(--shadow-card)',
           textAlign: 'center',
@@ -394,12 +392,24 @@ export default function Login() {
                     : 'Entrar'}
               </button>
 
-              <p
-                style={linkStyle}
-                onClick={() => trocarModo('recover')}
-              >
-                Esqueci minha senha
-              </p>
+              {/* "Esqueci minha senha" só faz sentido em quem já tem conta —
+                  fora do modo cadastro. */}
+              {!isRegistering && (
+                <p
+                  style={linkStyle}
+                  onClick={() => trocarModo('recover')}
+                >
+                  Esqueci minha senha
+                </p>
+              )}
+
+              {/* Separador "ou" em azul (mesmo da tela inicial), acima da ação
+                  alternativa (criar conta / voltar para login). */}
+              <div style={separadorOuStyle}>
+                <span style={separadorLinhaStyle} />
+                <span style={{ fontWeight: 'bold', fontSize: '14px' }}>ou</span>
+                <span style={separadorLinhaStyle} />
+              </div>
 
               <button
                 type="button"
@@ -452,10 +462,13 @@ const buttonStyle = {
   boxShadow: '0 6px 18px var(--shadow-button-primary)'
 };
 
+// Botão "vazado": fundo do card (branco no tema claro), texto e borda no mesmo
+// azul do botão "Entrar".
 const secondaryButtonStyle = {
   ...buttonStyle,
-  backgroundColor: 'var(--color-border-alt)',
-  color: 'var(--color-text-muted)',
+  backgroundColor: 'var(--color-bg-card)',
+  color: 'var(--color-primary)',
+  border: '2px solid var(--color-primary)',
   boxShadow: 'none',
   marginTop: '12px'
 };
@@ -481,6 +494,24 @@ const linkStyle = {
   textDecoration: 'underline',
   fontSize: '13px',
   marginTop: '10px'
+};
+
+// Separador "-----ou-----" igual ao da tela inicial (Menu.jsx).
+const separadorOuStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '12px',
+  width: '100%',
+  margin: '16px 0 12px',
+  color: 'var(--color-primary)'
+};
+
+const separadorLinhaStyle = {
+  flex: 1,
+  height: '2px',
+  backgroundColor: 'currentColor',
+  opacity: 0.55,
+  borderRadius: '1px'
 };
 
 const labelStyle = { fontSize: '13px', color: 'var(--color-text-muted)', fontWeight: 'bold', marginBottom: '6px', display: 'block' };

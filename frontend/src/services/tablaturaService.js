@@ -78,16 +78,24 @@ export async function contarCurtidas(tablaturaId) {
     .eq('bool_curtida', true);
 }
 
+// Retorna { data: boolean } — se o usuário já curtiu esta tablatura. Não usa
+// .maybeSingle() de propósito: se por algum motivo existir mais de uma linha
+// pra (usuario, tablatura), .maybeSingle() lançaria erro e a tela trataria
+// como "não curtiu", deixando curtir de novo (contador subindo sem parar).
 export async function usuarioCurtiu({ tablaturaId, usuarioId }) {
-  return supabase
+  const { data, error } = await supabase
     .from('curtidas')
     .select('id')
     .eq('tablatura_id', tablaturaId)
     .eq('usuario_id', usuarioId)
     .eq('bool_curtida', true)
-    .maybeSingle();
+    .limit(1);
+
+  return { data: Array.isArray(data) && data.length > 0, error };
 }
 
+// Remove a curtida do usuário nesta tablatura. .match() apaga TODAS as linhas
+// que casarem — então também limpa eventuais duplicatas antigas.
 export async function removerCurtida({ usuarioId, tablaturaId }) {
   return supabase
     .from('curtidas')
@@ -95,7 +103,16 @@ export async function removerCurtida({ usuarioId, tablaturaId }) {
     .match({ usuario_id: usuarioId, tablatura_id: tablaturaId });
 }
 
+// Curtir é idempotente: apaga qualquer curtida já existente desse usuário
+// nesta tablatura antes de inserir uma. Garante no máximo 1 linha por
+// (usuario, tablatura) mesmo sem constraint UNIQUE no banco — e conserta na
+// hora qualquer duplicata que já existisse pra esse usuário.
 export async function adicionarCurtida({ usuarioId, tablaturaId }) {
+  await supabase
+    .from('curtidas')
+    .delete()
+    .match({ usuario_id: usuarioId, tablatura_id: tablaturaId });
+
   return supabase
     .from('curtidas')
     .insert({ usuario_id: usuarioId, tablatura_id: tablaturaId, bool_curtida: true });

@@ -6,7 +6,11 @@ const ESTADO_INICIAL = {
   message: '',
   type: 'info',
   onConfirm: null,
-  confirmLabel: undefined
+  confirmLabel: undefined,
+  // Terceira ação opcional do modal (ex.: "Descartar alterações"), além de
+  // Cancelar (onClose) e a ação principal (onConfirm).
+  onSecondary: null,
+  secondaryLabel: undefined
 };
 
 // Unifica o padrão modalConfig/showAlert duplicado em várias páginas, além
@@ -16,14 +20,16 @@ export function useModal() {
   const [modalConfig, setModalConfig] = useState(ESTADO_INICIAL);
 
   const showAlert = (message, title = 'Aviso', type = 'info') => {
-    setModalConfig({ isOpen: true, title, message, type, onConfirm: null, confirmLabel: undefined });
+    setModalConfig({ isOpen: true, title, message, type, onConfirm: null, confirmLabel: undefined, onSecondary: null, secondaryLabel: undefined });
   };
 
   // confirmLabel: sobrescreve o texto padrão ("Confirmar") do botão de
   // confirmação — útil quando a ação precisa deixar bem claro o que vai
   // acontecer (ex.: "Sim, excluir todos os meus dados").
-  const showConfirm = (message, { title = 'Confirmação', type = 'warning', onConfirm, confirmLabel } = {}) => {
-    setModalConfig({ isOpen: true, title, message, type, onConfirm, confirmLabel });
+  // onSecondary/secondaryLabel: botão do meio opcional (ex.: "Descartar
+  // alterações") pra fluxos com três saídas.
+  const showConfirm = (message, { title = 'Confirmação', type = 'warning', onConfirm, confirmLabel, onSecondary, secondaryLabel } = {}) => {
+    setModalConfig({ isOpen: true, title, message, type, onConfirm, confirmLabel, onSecondary, secondaryLabel });
   };
 
   const closeModal = () => {

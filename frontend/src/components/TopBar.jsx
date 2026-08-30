@@ -1,4 +1,5 @@
 import AnimatedMenuBar, { TOPBAR_CLEARANCE } from './AnimatedMenuBar';
+import { limparSnapshotMenu } from '../utils/menuSnapshot';
 
 export { TOPBAR_CLEARANCE };
 
@@ -16,7 +17,12 @@ export { TOPBAR_CLEARANCE };
 // se passado, substitui esse comportamento por completo (usado por telas que
 // precisam resetar estado local em vez de só navegar).
 export default function TopBar({ expanded, navigateAnimated, onLogoClick }) {
-  const handleTitleClick = onLogoClick || (() => navigateAnimated('/', { expand: false }));
+  // Clicar no título é "ir pra home do zero": descarta o snapshot da tela de
+  // resultados (senão o Menu remontaria com a última busca restaurada).
+  const handleTitleClick = onLogoClick || (() => {
+    limparSnapshotMenu();
+    navigateAnimated('/', { expand: false });
+  });
 
   return (
     <AnimatedMenuBar

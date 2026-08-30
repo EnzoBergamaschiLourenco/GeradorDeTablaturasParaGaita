@@ -4,6 +4,7 @@ import { useAnimatedNavigate, CONTENT_FADE_MS } from '../hooks/useAnimatedNaviga
 import { useCarregamentoMinimo, usePontinhos } from '../hooks/useCarregamento';
 import { buscarTonsPorTipo } from '../services/gaitaLayoutService';
 import { buscarTablaturas } from '../services/tablaturaService';
+import { lerSnapshotMenu, salvarSnapshotMenu, limparSnapshotMenu } from '../utils/menuSnapshot';
 
 // Estilos do controle de filtros recolhível — isolados aqui (mesmo padrão do
 // bloco "Configurações da Gaita" de MontarTablatura.jsx) pra facilitar
@@ -110,7 +111,14 @@ export default function Menu() {
   // conteúdo abaixo (fadeStyle) some/aparece junto, em vez de trocar de tela
   // de repente.
   const { expanded: navExpanded, contentVisible, navigateAnimated } = useAnimatedNavigate(false);
-  const [busca, setBusca] = useState('');
+
+  // Snapshot da última lista de resultados (lido só uma vez, no mount). Existe
+  // quando o usuário entrou numa tablatura a partir de um resultado e voltou —
+  // aí a tela de resultados é remontada exatamente como estava (filtros,
+  // página, ordenação, rolagem) em vez de zerada. Ver utils/menuSnapshot.js.
+  const [snapshotInicial] = useState(lerSnapshotMenu);
+
+  const [busca, setBusca] = useState(() => snapshotInicial?.busca ?? '');
   const [mostrarSugestao, setMostrarSugestao] = useState(false);
 
   const irParaLogin = () => navigateAnimated('/login', { expand: true });
@@ -118,30 +126,30 @@ export default function Menu() {
   const irParaCriarTabs = () => navigateAnimated('/CriarTabs', { expand: true });
 
   // Estados da pesquisa e filtros
-  const [pesquisaAtiva, setPesquisaAtiva] = useState(false);
+  const [pesquisaAtiva, setPesquisaAtiva] = useState(() => Boolean(snapshotInicial));
   const [carregando, setCarregando] = useState(false);
-  const [resultados, setResultados] = useState([]);
+  const [resultados, setResultados] = useState(() => snapshotInicial?.resultados ?? []);
   // "Carregando" da lista de resultados respeita o tempo mínimo (anti-flash) + "..."
   const buscandoMin = useCarregamentoMinimo(carregando);
   const pontosBusca = usePontinhos(buscandoMin);
 
   // Campos de filtro
-  const [filtroNomeMusica, setFiltroNomeMusica] = useState('');
-  const [filtroAutorMusica, setFiltroAutorMusica] = useState('');
-  const [filtroAutorTab, setFiltroAutorTab] = useState('');
-  const [filtroTom, setFiltroTom] = useState('');
-  const [filtroTipo, setFiltroTipo] = useState('');
+  const [filtroNomeMusica, setFiltroNomeMusica] = useState(() => snapshotInicial?.filtroNomeMusica ?? '');
+  const [filtroAutorMusica, setFiltroAutorMusica] = useState(() => snapshotInicial?.filtroAutorMusica ?? '');
+  const [filtroAutorTab, setFiltroAutorTab] = useState(() => snapshotInicial?.filtroAutorTab ?? '');
+  const [filtroTom, setFiltroTom] = useState(() => snapshotInicial?.filtroTom ?? '');
+  const [filtroTipo, setFiltroTipo] = useState(() => snapshotInicial?.filtroTipo ?? '');
 
   // Bloco de filtros recolhido por padrão ao entrar nos resultados, pra dar
   // foco à lista; "Editar" reabre os campos, "Recolher" some com eles de
   // novo — mesmo padrão de "Configurações da Gaita" em MontarTablatura.jsx.
-  const [filtrosColapsados, setFiltrosColapsados] = useState(true);
+  const [filtrosColapsados, setFiltrosColapsados] = useState(() => snapshotInicial?.filtrosColapsados ?? true);
 
   // Snapshot dos filtros realmente aplicados na última busca — separado dos
   // campos "ao vivo" acima (filtroNomeMusica etc.) pra que o cabeçalho
   // ("Resultados para X", contagem de filtros) só mude quando o usuário
   // clicar em "Aplicar Filtros", não a cada tecla digitada.
-  const [filtrosAplicados, setFiltrosAplicados] = useState({
+  const [filtrosAplicados, setFiltrosAplicados] = useState(() => snapshotInicial?.filtrosAplicados ?? {
     nome: '', autorMusica: '', autorTab: '', tom: '', tipo: ''
   });
   const filtrosAtivos = Object.values(filtrosAplicados).filter((valor) => valor).length;
@@ -149,8 +157,11 @@ export default function Menu() {
   // Paginação e ordenação da lista de resultados — puramente de exibição,
   // não disparam nova busca no Supabase. Toda nova busca volta pra página 1
   // e pro critério padrão (mais curtidas primeiro).
-  const [paginaAtual, setPaginaAtual] = useState(1);
-  const [ordenacao, setOrdenacao] = useState('curtidas_desc');
+  const [paginaAtual, setPaginaAtual] = useState(() => snapshotInicial?.paginaAtual ?? 1);
+  const [ordenacao, setOrdenacao] = useState(() => snapshotInicial?.ordenacao ?? 'curtidas_desc');
+  // Id do card clicado na última vez que saímos daqui pra uma tablatura — usado
+  // pra dar um destaque rápido ("foco onde apertei") ao voltar.
+  const [idDestacado, setIdDestacado] = useState(() => snapshotInicial?.focoTabId ?? null);
   const topoListaRef = useRef(null);
   // Div raiz com o scroll de verdade da tela (position:fixed + overflowY:auto
   // — a página em si não rola, esse container interno é quem rola). Usado
@@ -161,6 +172,9 @@ export default function Menu() {
   // sinaliza pro efeito abaixo que essa troca de página específica precisa
   // rolar pro topo.
   const deveRolarParaTopoRef = useRef(false);
+  // Guarda o id do requestAnimationFrame da restauração de scroll (ao voltar de
+  // uma tablatura) pra poder cancelar no unmount.
+  const rafRestauraRef = useRef(0);
 
   // Atalhos de paginação de cima da lista: rolam só até o início da lista
   // (já estão praticamente ali).
@@ -193,6 +207,34 @@ export default function Menu() {
       scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [paginaAtual]);
+
+  // Ao voltar de uma tablatura pra cá (snapshot presente): restaura a posição
+  // de rolagem exata em que o usuário estava e dá um destaque rápido no card
+  // que ele havia clicado. Roda uma vez só, no mount. O scroll é reposto em
+  // rAF aninhado pra acontecer depois que a lista de resultados já pintou.
+  useEffect(() => {
+    if (!snapshotInicial) return undefined;
+
+    const alvo = snapshotInicial.scrollTop || 0;
+    const raf1 = requestAnimationFrame(() => {
+      const raf2 = requestAnimationFrame(() => {
+        scrollContainerRef.current?.scrollTo({ top: alvo });
+      });
+      rafRestauraRef.current = raf2;
+    });
+    rafRestauraRef.current = raf1;
+
+    // Tira o destaque do card depois de alguns segundos.
+    const idDestaque = snapshotInicial.focoTabId
+      ? setTimeout(() => setIdDestacado(null), 2600)
+      : null;
+
+    return () => {
+      cancelAnimationFrame(rafRestauraRef.current);
+      if (idDestaque) clearTimeout(idDestaque);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Tons existentes para o tipo de gaita selecionado
   const [tonsFiltroDisponiveis, setTonsFiltroDisponiveis] = useState([]);
@@ -354,8 +396,12 @@ export default function Menu() {
     }
   };
 
-  // Volta para a tela inicial, escondendo os resultados.
+  // Volta para a tela inicial, escondendo os resultados. Aqui o usuário está
+  // descartando a busca de propósito, então o snapshot (restauração ao voltar
+  // de uma tablatura) também é apagado.
   const voltarParaInicio = () => {
+    limparSnapshotMenu();
+    setIdDestacado(null);
     setPesquisaAtiva(false);
     setResultados([]);
     setBusca('');
@@ -368,6 +414,29 @@ export default function Menu() {
     setFiltrosAplicados({ nome: '', autorMusica: '', autorTab: '', tom: '', tipo: '' });
     setPaginaAtual(1);
     setOrdenacao('curtidas_desc');
+  };
+
+  // Abre a tablatura de um resultado. Antes de navegar, salva um snapshot da
+  // tela de resultados (filtros, página, ordenação, rolagem atual e qual card
+  // foi clicado) — assim, ao voltar (botão do navegador ou o ✕ em
+  // VisualizarTabs), o Menu remonta exatamente daqui.
+  const abrirTablatura = (tab) => {
+    salvarSnapshotMenu({
+      busca,
+      resultados,
+      filtroNomeMusica,
+      filtroAutorMusica,
+      filtroAutorTab,
+      filtroTom,
+      filtroTipo,
+      filtrosColapsados,
+      filtrosAplicados,
+      paginaAtual,
+      ordenacao,
+      scrollTop: scrollContainerRef.current?.scrollTop || 0,
+      focoTabId: tab.id
+    });
+    navigateAnimated('/VisualizarTabs', { expand: true, state: { tab } });
   };
 
   const resultadosOrdenados = ordenarResultados(resultados, ordenacao);
@@ -384,8 +453,6 @@ export default function Menu() {
       style={{
         position: 'fixed',
         inset: 0,
-        width: '100vw',
-        height: '100vh',
         backgroundColor: 'var(--color-bg-page)',
         fontFamily: 'Arial, sans-serif',
         overflowY: 'auto',
@@ -416,7 +483,7 @@ export default function Menu() {
             style={{
               width: '100%',
               backgroundColor: 'var(--color-bg-card)',
-              padding: '45px',
+              padding: 'clamp(24px, 6vw, 45px)',
               borderRadius: '24px',
               boxShadow: '0 15px 40px var(--shadow-card)',
               display: 'flex',
@@ -429,7 +496,7 @@ export default function Menu() {
               style={{
                 margin: 0,
                 color: 'var(--color-primary)',
-                fontSize: '42px',
+                fontSize: 'clamp(28px, 8vw, 42px)',
                 fontWeight: 'bold'
               }}
             >
@@ -466,6 +533,7 @@ export default function Menu() {
                   onKeyDown={handleKeyDownBusca}
                   style={{
                     flex: 1,
+                    minWidth: 0,
                     padding: '15px 18px',
                     borderRadius: '14px',
                     border: 'var(--border-width-base) solid var(--color-border)',
@@ -578,7 +646,7 @@ export default function Menu() {
             style={{
               width: '100%',
               backgroundColor: 'var(--color-bg-card)',
-              padding: '35px',
+              padding: 'clamp(20px, 5vw, 35px)',
               borderRadius: '24px',
               boxShadow: '0 15px 40px var(--shadow-card)',
               boxSizing: 'border-box'
@@ -599,7 +667,7 @@ export default function Menu() {
                 style={{
                   margin: 0,
                   color: 'var(--color-primary)',
-                  fontSize: '30px',
+                  fontSize: 'clamp(22px, 6vw, 30px)',
                   flexShrink: 0
                 }}
               >
@@ -674,7 +742,11 @@ export default function Menu() {
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
+                    // auto-fit: várias colunas quando cabem, 1 quando não —
+                    // sem breakpoint fixo. O card em volta nunca deixa o grid
+                    // ficar abaixo de ~240px, então o mínimo de 210px de cada
+                    // trilha não gera overflow (auto-fit só cria coluna que cabe).
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
                     gap: '12px',
                     marginBottom: '15px'
                   }}
@@ -712,7 +784,7 @@ export default function Menu() {
                       padding: '10px',
                       borderRadius: '8px',
                       border: 'var(--border-width-base) solid var(--color-border-neutral)',
-                      gridColumn: 'span 2'
+                      gridColumn: '1 / -1'
                     }}
                   />
 
@@ -876,9 +948,7 @@ export default function Menu() {
                   {resultadosDaPagina.map((tab) => (
                   <div
                     key={tab.id}
-                    onClick={() =>
-                      navigateAnimated('/VisualizarTabs', { expand: true, state: { tab } })
-                    }
+                    onClick={() => abrirTablatura(tab)}
                     style={{
                       backgroundColor: 'var(--color-bg-card-alt)',
                       border: 'var(--border-width-base) solid var(--color-border-alt)',
@@ -886,7 +956,11 @@ export default function Menu() {
                       padding: '16px',
                       cursor: 'pointer',
                       transition: '0.2s ease',
-                      boxShadow: '0 2px 6px var(--shadow-card-softer)'
+                      boxShadow: '0 2px 6px var(--shadow-card-softer)',
+                      // Destaque rápido no card clicado, ao voltar de uma
+                      // tablatura pra cá (some sozinho após alguns segundos).
+                      outline: idDestacado === tab.id ? '2px solid var(--color-primary)' : 'none',
+                      outlineOffset: '2px'
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = 'var(--color-primary)';

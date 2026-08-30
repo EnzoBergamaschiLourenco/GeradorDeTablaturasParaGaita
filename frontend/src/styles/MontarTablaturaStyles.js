@@ -40,7 +40,7 @@ export const btnExpandirConfig = { padding: '4px 10px', fontSize: '12px', fontWe
 /* === Maximizar "Partes Ativas" === */
 export const btnMaximizarStyle = { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', padding: 0, backgroundColor: 'var(--color-border-alt)', color: 'var(--color-text-muted)', border: 'none', borderRadius: '6px', cursor: 'pointer', flexShrink: 0 };
 export const btnRestaurarStyle = { display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', backgroundColor: 'var(--color-border-alt)', color: 'var(--color-text-muted)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' };
-export const overlayPartesMaximizado = { position: 'fixed', inset: 0, zIndex: 500, backgroundColor: 'var(--color-bg-card)', display: 'flex', flexDirection: 'column', padding: '24px 30px', boxSizing: 'border-box' };
+export const overlayPartesMaximizado = { position: 'fixed', inset: 0, zIndex: 500, backgroundColor: 'var(--color-bg-card)', display: 'flex', flexDirection: 'column', padding: 'clamp(16px, 4vw, 24px) clamp(16px, 5vw, 30px)', boxSizing: 'border-box' };
 export const overlayPartesHeader = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, marginBottom: '16px', paddingBottom: '16px', borderBottom: 'var(--border-width-base) solid var(--color-border-alt)' };
 export const overlayPartesTitulo = { margin: 0, color: 'var(--color-primary)', fontSize: '24px', fontWeight: 'bold' };
 export const overlayBarraWrap = { flexShrink: 0, marginBottom: '20px', width: '100%' };
@@ -78,7 +78,7 @@ export const btnCancelarModal = { padding: '10px 18px', backgroundColor: 'var(--
 export const btnConfirmarModal = { padding: '10px 18px', backgroundColor: 'var(--color-primary)', color: 'var(--color-text-on-primary)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 4px 10px var(--shadow-button-primary-soft)' };
 
 /* === Modal único de Ajuste de Notas (agrupa todas as partes pendentes) === */
-export const modalContentAjuste = { backgroundColor: 'var(--color-bg-card)', padding: '30px', borderRadius: '16px', width: '92%', maxWidth: '700px', height: '85vh', maxHeight: '750px', boxShadow: '0 10px 25px var(--shadow-note-selected)', display: 'flex', flexDirection: 'column', overflow: 'hidden' };
+export const modalContentAjuste = { backgroundColor: 'var(--color-bg-card)', padding: 'clamp(18px, 4vw, 30px)', borderRadius: '16px', width: '92%', maxWidth: '700px', height: 'min(85dvh, 750px)', maxHeight: '750px', boxShadow: '0 10px 25px var(--shadow-note-selected)', display: 'flex', flexDirection: 'column', overflow: 'hidden' };
 export const modalAjusteHeader = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', flexShrink: 0 };
 export const modalAjusteTitulo = { margin: 0, color: 'var(--color-text-slate-4)' };
 export const modalAjusteBadge = { fontSize: '12px', fontWeight: 'bold', color: 'var(--color-primary)', backgroundColor: 'var(--color-bg-icon-secondary)', padding: '4px 10px', borderRadius: '999px', whiteSpace: 'nowrap' };

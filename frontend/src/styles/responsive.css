@@ -1,0 +1,68 @@
+/* ==========================================================================
+   Camada de responsividade — só o que dá pra assumir com segurança em CSS
+   global (sem colidir com os style={{}} inline do app). O empilhamento de
+   colunas, breakpoints estruturais e tipografia fluida vivem nos componentes
+   (via hook useMediaQuery), porque inline style tem specificity alta demais
+   pra ser sobrescrito daqui.
+   Importado por último em main.jsx.
+   ========================================================================== */
+
+/* Box model previsível: padding/borda não aumentam mais a largura do elemento.
+   A maioria dos containers já declara isso inline; aqui vira o padrão pra
+   todo o resto, eliminando estouros sutis. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Guarda contra scrollbar horizontal (ex.: restos de 100vw, margens negativas
+   de containers com scroll). O position:sticky do app roda dentro de
+   scrollers internos (overflowY:auto), não no scroll do body — então isto
+   não o afeta. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Passo extra de tipografia base em telas bem pequenas — complementa o
+   @media (max-width:1024px){font-size:16px} do index.css. Só afeta texto
+   SEM fontSize inline (a maioria do app usa px inline e não é afetada). */
+@media (max-width: 480px) {
+  :root {
+    font-size: 15px;
+  }
+}
+
+/* Acessibilidade: quem pede menos movimento não recebe as transições de
+   fade/expand. A navegação continua funcionando (os timeouts em JS não
+   dependem do CSS) — só o efeito visual fica instantâneo. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Alvo de toque do slider de volume (única regra CSS "de verdade" do app,
+   em theme.css). Em ponteiro grosso, trilho e thumb ficam maiores pra dar
+   pra arrastar com o dedo. */
+@media (pointer: coarse) {
+  .volume-slider {
+    height: 10px;
+  }
+  .volume-slider::-webkit-slider-thumb {
+    width: 20px;
+    height: 20px;
+    margin-top: -5px;
+  }
+  .volume-slider::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+  }
+}

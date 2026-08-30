@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import CustomModal from '../components/CustomModal';
 import TablaturaView from '../components/TablaturaView';
 import TopBar, { TOPBAR_CLEARANCE } from '../components/TopBar';
 import { useAnimatedNavigate, fadeStyle } from '../hooks/useAnimatedNavigate';
+import { useIsStacked } from '../hooks/useMediaQuery';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
 import { useCarregamentoMinimo, usePontinhos } from '../hooks/useCarregamento';
@@ -17,13 +18,30 @@ import {
   buscarTablaturaPorId
 } from '../services/tablaturaService';
 import { pareceLinhaDeNotas } from '../utils/tablatura';
+import { temSnapshotMenu } from '../utils/menuSnapshot';
 
 export default function VisualizarTabs() {
   const { modalConfig, showAlert, showConfirm, closeModal } = useModal();
 
   const { expanded, contentVisible, navigateAnimated } = useAnimatedNavigate(true);
+  const isStacked = useIsStacked();
   const location = useLocation();
+  const navigate = useNavigate();
   const tabRecebida = location.state?.tab;
+
+  // Só mostra o ✕ "voltar aos resultados" quando o usuário chegou aqui a
+  // partir de um resultado de busca (o Menu deixa um snapshot em
+  // sessionStorage nesse caso). Lido uma vez no mount — não muda enquanto a
+  // tela está aberta.
+  const [veioDosResultados] = useState(temSnapshotMenu);
+
+  // Volta pra tela de resultados exatamente de onde o usuário saiu. navigate(-1)
+  // remonta o Menu, que restaura filtros/página/ordenação/rolagem pelo
+  // snapshot; o fallback cobre o caso raro de não haver histórico.
+  const voltarAosResultados = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate('/');
+  };
 
   // Link compartilhável: /VisualizarTabs?id=123 abre a tela sem passar pelo
   // state de navegação — nesse caso a tablatura é buscada no banco pelo id.
@@ -39,11 +57,22 @@ export default function VisualizarTabs() {
   const { usuario } = useAuthUser();
   const [curtido, setCurtido] = useState(false);
   const [totalCurtidas, setTotalCurtidas] = useState(0);
+  // Trava anti-clique-múltiplo do botão de curtir: `processandoCurtida` só
+  // desabilita o botão na UI (aplicado depois do re-render), enquanto o ref é
+  // checado de forma síncrona no início do handler — fecha a janela entre o
+  // clique e o React re-renderizar em que cliques muito rápidos ainda
+  // disparariam requisições repetidas.
+  const curtindoRef = useRef(false);
+  const [processandoCurtida, setProcessandoCurtida] = useState(false);
 
   // Estados para edição
   const [editando, setEditando] = useState(false);
   const [textoTablatura, setTextoTablatura] = useState('');
   const [salvando, setSalvando] = useState(false);
+  // Conteúdo já salvo nesta sessão (o objeto `tab` que veio na navegação não
+  // é atualizado após um save). Serve de referência pra saber se há
+  // alterações não salvas depois de salvar e reentrar em edição.
+  const [conteudoSalvoLocal, setConteudoSalvoLocal] = useState(null);
 
   // Modo tela cheia da área da tablatura (mesma ideia do "maximizar" das
   // Partes Ativas na tela de montar tablatura).
@@ -76,6 +105,11 @@ Pleased the Lord
 
   const isOwner = usuario && tabData.usuario_id && usuario.id === tabData.usuario_id;
 
+  // Referência "verdadeira" do conteúdo (o último salvo nesta sessão, ou o
+  // que veio na navegação) e flag de alterações não salvas em edição.
+  const conteudoBase = conteudoSalvoLocal ?? tabData.conteudoOriginal;
+  const temAlteracoesNaoSalvas = editando && textoTablatura !== conteudoBase;
+
   // Quando aberto por link (?id=), busca a tablatura no banco. O estado de
   // "carregando" já nasce true pelo useState acima nesse cenário.
   useEffect(() => {
@@ -104,8 +138,8 @@ Pleased the Lord
   }, [tabData.id]);
 
   useEffect(() => {
-    if (!editando) setTextoTablatura(tabData.conteudoOriginal);
-  }, [tabData.conteudoOriginal]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!editando) setTextoTablatura(conteudoBase);
+  }, [conteudoBase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Esc fecha o modo tela cheia da tablatura.
   useEffect(() => {
@@ -128,7 +162,7 @@ Pleased the Lord
         outline: 'none',
         backgroundColor: 'transparent', // fundo transparente (herda o amarelado)
         fontFamily: 'monospace',
-        fontSize: '18px',
+        fontSize: 'clamp(13px, 3.5vw, 18px)',
         resize: 'none',
         lineHeight: '1.6',
         color: 'var(--color-text-main)'
@@ -139,10 +173,14 @@ Pleased the Lord
       style={{
         flex: 1,
         padding: '20px',
-        overflowY: 'auto'
+        overflowY: 'auto',
+        // Em coluna estreita, a tablatura rola na horizontal (mantendo o
+        // alinhamento nota/letra) em vez de quebrar linha. No desktop segue
+        // com o pre-wrap de sempre.
+        overflowX: isStacked ? 'auto' : 'visible'
       }}
     >
-      <TablaturaView conteudo={textoTablatura} />
+      <TablaturaView conteudo={textoTablatura} nowrap={isStacked} />
     </div>
   );
 
@@ -175,7 +213,9 @@ Pleased the Lord
       if (usuario) {
         const { data } = await usuarioCurtiu({ tablaturaId: tabData.id, usuarioId: usuario.id });
 
-        if (data) setCurtido(true);
+        setCurtido(Boolean(data));
+      } else {
+        setCurtido(false);
       }
     };
 
@@ -184,40 +224,58 @@ Pleased the Lord
 
   const handleCurtida = async () => {
     if (!usuario) {
-      showAlert("⚠️ Você precisa estar logado para curtir esta tablatura!");
-      navigateAnimated('/login', { expand: true });
+      // Não empurra pro login direto: o usuário decide se vai fazer login
+      // agora ou se fecha o popup (✕) e continua onde estava.
+      showConfirm('Você precisa estar logado para curtir esta tablatura.', {
+        title: 'Entrar na conta',
+        type: 'info',
+        confirmLabel: 'Fazer login',
+        onConfirm: () => {
+          closeModal();
+          navigateAnimated('/login', { expand: true });
+        }
+      });
       return;
     }
 
     if (!tabData.id) return;
 
+    // Uma operação por vez: cliques enquanto a anterior ainda está no ar são
+    // ignorados. É isso que impede o contador de subir (ou descer) várias
+    // vezes com cliques rápidos.
+    if (curtindoRef.current) return;
+    curtindoRef.current = true;
+    setProcessandoCurtida(true);
+
+    const iaCurtir = !curtido;
+
     try {
-      if (curtido) {
-        // Remove a curtida
-        const { error } = await removerCurtida({ usuarioId: usuario.id, tablaturaId: tabData.id });
+      const { error } = iaCurtir
+        ? await adicionarCurtida({ usuarioId: usuario.id, tablaturaId: tabData.id })
+        : await removerCurtida({ usuarioId: usuario.id, tablaturaId: tabData.id });
 
-        if (!error) {
-          setCurtido(false);
-          setTotalCurtidas((prev) => Math.max(0, prev - 1));
-        }
-      } else {
-        // Adiciona a curtida
-        const { error } = await adicionarCurtida({ usuarioId: usuario.id, tablaturaId: tabData.id });
+      if (error) throw error;
 
-        if (!error) {
-          setCurtido(true);
-          setTotalCurtidas((prev) => prev + 1);
-        }
-      }
+      setCurtido(iaCurtir);
+
+      // O número exibido vem sempre da contagem real do banco, nunca de um
+      // "prev ± 1" local (que era o que permitia acumular curtidas).
+      const { count } = await contarCurtidas(tabData.id);
+      if (typeof count === 'number') setTotalCurtidas(count);
     } catch (error) {
       console.error("Erro ao curtir:", error);
+    } finally {
+      curtindoRef.current = false;
+      setProcessandoCurtida(false);
     }
   };
 
-  const handleSalvarEdicao = async () => {
+  // Retorna true se salvou. `silencioso` pula o alerta de sucesso (usado no
+  // fluxo "Salvar e sair", onde logo em seguida a tela navega pra fora).
+  const handleSalvarEdicao = async ({ silencioso = false } = {}) => {
     if (!textoTablatura.trim()) {
       showAlert("A tablatura não pode estar vazia.");
-      return;
+      return false;
     }
 
     setSalvando(true);
@@ -228,11 +286,118 @@ Pleased the Lord
     if (error) {
       console.error("Erro ao salvar:", error);
       showAlert("Erro ao salvar alterações.");
+      return false;
+    }
+
+    setEditando(false);
+    setConteudoSalvoLocal(textoTablatura);
+    if (!silencioso) showAlert("Tablatura atualizada com sucesso!");
+    return true;
+  };
+
+  // ═══════════ GUARDA DE SAÍDA DURANTE A EDIÇÃO ═══════════
+  // Quando o dono está editando a própria tablatura e tem alterações não
+  // salvas, qualquer tentativa de sair — título "HarmonicaTabs", chip de
+  // perfil, botão de login, o ✕ "voltar aos resultados", o Voltar do
+  // navegador e recarregar/fechar a aba — abre um diálogo com três opções:
+  // "Salvar e sair", "Descartar alterações" e "Cancelar".
+  const guardaEdicaoDesarmadaRef = useRef(false); // saída intencional em curso
+  const sentinelaEdicaoRef = useRef(false);       // sentinela nossa está no histórico?
+  const ignorarPopRef = useRef(false);            // próximo popstate é nosso (ignorar)
+  const temAlteracoesRef = useRef(false);
+  useEffect(() => { temAlteracoesRef.current = temAlteracoesNaoSalvas; }, [temAlteracoesNaoSalvas]);
+
+  // Abre o diálogo de saída; `aoSair` executa a navegação de fato.
+  const abrirDialogoSaidaEdicao = (aoSair) => {
+    showConfirm('Você tem alterações não salvas nesta tablatura.', {
+      title: 'Sair da edição?',
+      type: 'info',
+      confirmLabel: 'Salvar e sair',
+      secondaryLabel: 'Descartar alterações',
+      onConfirm: async () => {
+        const ok = await handleSalvarEdicao({ silencioso: true });
+        if (!ok) return; // erro já avisado; permanece na edição
+        closeModal();
+        aoSair();
+      },
+      onSecondary: () => {
+        closeModal();
+        setTextoTablatura(conteudoBase);
+        setEditando(false);
+        aoSair();
+      }
+    });
+  };
+
+  // Descarta a sentinela do histórico (se houver) e só então navega, pra não
+  // sobrar uma entrada duplicada de VisualizarTabs acessível pelo Voltar.
+  const sairDescartandoSentinela = (aoSair) => {
+    guardaEdicaoDesarmadaRef.current = true;
+    if (sentinelaEdicaoRef.current && window.history.state === null) {
+      sentinelaEdicaoRef.current = false;
+      ignorarPopRef.current = true;
+      window.history.go(-1);          // remove a sentinela (mesma URL, sem re-render)
+      setTimeout(aoSair, 0);
     } else {
-      setEditando(false);
-      showAlert("Tablatura atualizada com sucesso!");
+      aoSair();
     }
   };
+
+  // Envolve uma navegação de saída: pergunta antes se há alterações não salvas.
+  const sairComGuardaEdicao = (aoSair) => {
+    if (!temAlteracoesNaoSalvas || guardaEdicaoDesarmadaRef.current) {
+      aoSair();
+      return;
+    }
+    abrirDialogoSaidaEdicao(() => sairDescartandoSentinela(aoSair));
+  };
+
+  // Vai no lugar de `navigateAnimated` no TopBar (título / perfil / login).
+  const navegarComGuardaEdicao = (path, opts) =>
+    sairComGuardaEdicao(() => navigateAnimated(path, opts));
+
+  // Mantém uma entrada-sentinela no histórico enquanto há alterações não
+  // salvas, pra poder interceptar o botão Voltar do navegador.
+  useEffect(() => {
+    if (guardaEdicaoDesarmadaRef.current) return;
+
+    if (temAlteracoesNaoSalvas && !sentinelaEdicaoRef.current) {
+      window.history.pushState(null, '', window.location.href);
+      sentinelaEdicaoRef.current = true;
+    } else if (!temAlteracoesNaoSalvas && sentinelaEdicaoRef.current) {
+      // Salvou/descartou ficando na tela: descarta a sentinela.
+      sentinelaEdicaoRef.current = false;
+      ignorarPopRef.current = true;
+      window.history.back();
+    }
+  }, [temAlteracoesNaoSalvas]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      if (ignorarPopRef.current) { ignorarPopRef.current = false; return; }
+      if (guardaEdicaoDesarmadaRef.current || !temAlteracoesRef.current) return;
+      // Voltou com alterações não salvas: repõe a sentinela e abre o diálogo.
+      window.history.pushState(null, '', window.location.href);
+      sentinelaEdicaoRef.current = true;
+      abrirDialogoSaidaEdicao(() => {
+        guardaEdicaoDesarmadaRef.current = true;
+        window.history.go(-2); // sentinela reposta + a própria entrada
+      });
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const onBeforeUnload = (e) => {
+      if (guardaEdicaoDesarmadaRef.current || !temAlteracoesRef.current) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
 
   const handleExcluir = async () => {
     showConfirm('Tem certeza que deseja excluir esta tablatura? Essa ação não pode ser desfeita.', {
@@ -245,7 +410,7 @@ Pleased the Lord
           if (error) throw error;
 
           showAlert("Tablatura excluída com sucesso!");
-          navigateAnimated('/', { expand: false });
+          sairDescartandoSentinela(() => navigateAnimated('/', { expand: false }));
         } catch (error) {
           console.error("Erro ao excluir:", error);
           showAlert("Ocorreu um erro ao excluir a tablatura.");
@@ -387,12 +552,14 @@ Pleased the Lord
       style={{
         position: 'fixed',
         inset: 0,
-        width: '100vw',
-        height: '100vh',
         backgroundColor: 'var(--color-bg-page)',
         fontFamily: 'Arial, sans-serif',
         display: 'flex',
-        overflow: 'hidden'
+        // Abaixo de BP_STACK as duas colunas (tablatura / info) empilham e a
+        // própria página passa a rolar, em vez do split 50/50 sem scroll.
+        flexDirection: isStacked ? 'column' : 'row',
+        overflowY: isStacked ? 'auto' : 'hidden',
+        overflowX: 'hidden'
       }}
     >
       <CustomModal
@@ -402,9 +569,13 @@ Pleased the Lord
         type={modalConfig.type}
         onConfirm={modalConfig.onConfirm}
         confirmLabel={modalConfig.confirmLabel}
+        onSecondary={modalConfig.onSecondary}
+        secondaryLabel={modalConfig.secondaryLabel}
         onClose={closeModal}
       />
-      <TopBar expanded={expanded} navigateAnimated={navigateAnimated} />
+      {/* navegarComGuardaEdicao: título / perfil / login pedem "Salvar e sair /
+          Descartar" se houver edição não salva. */}
+      <TopBar expanded={expanded} navigateAnimated={navegarComGuardaEdicao} />
       {/* COLUNA DA ESQUERDA (Texto da Tablatura) */}
       {/* Espaçamentos referenciados na barra de menu: 20px do topo (respiro
           embaixo da barra, já embutido no TOPBAR_CLEARANCE), 20px das bordas
@@ -412,14 +583,14 @@ Pleased the Lord
           internas). */}
       <div
         style={{
-          width: '50%',
-          height: '100%',
+          width: isStacked ? '100%' : '50%',
+          height: isStacked ? 'auto' : '100%',
           display: 'flex',
-          justifyContent: 'flex-end',
+          justifyContent: isStacked ? 'center' : 'flex-end',
           alignItems: 'center',
           padding: '20px',
           paddingTop: `${TOPBAR_CLEARANCE}px`,
-          paddingRight: '10px',
+          paddingRight: isStacked ? '20px' : '10px',
           boxSizing: 'border-box',
           backgroundColor: 'var(--color-bg-page)',
           ...fadeStyle(contentVisible)
@@ -427,7 +598,8 @@ Pleased the Lord
       >
         <div style={{
           width: '100%',
-          height: '100%',
+          height: isStacked ? 'auto' : '100%',
+          minHeight: isStacked ? '60vh' : undefined,
           maxWidth: '820px',
           backgroundColor: 'var(--color-bg-paper)',
           borderRadius: '16px',
@@ -462,14 +634,14 @@ Pleased the Lord
       {/* COLUNA DA DIREITA (Card de Informações e Ações) */}
       <div
         style={{
-          width: '50%',
-          height: '100%',
+          width: isStacked ? '100%' : '50%',
+          height: isStacked ? 'auto' : '100%',
           display: 'flex',
-          justifyContent: 'flex-start',
+          justifyContent: isStacked ? 'center' : 'flex-start',
           alignItems: 'center',
           padding: '20px',
-          paddingTop: `${TOPBAR_CLEARANCE}px`,
-          paddingLeft: '10px',
+          paddingTop: isStacked ? '20px' : `${TOPBAR_CLEARANCE}px`,
+          paddingLeft: isStacked ? '20px' : '10px',
           boxSizing: 'border-box',
           backgroundColor: 'var(--color-bg-page)',
           overflow: 'hidden',
@@ -481,9 +653,9 @@ Pleased the Lord
             retângulo arredondado, não o retângulo dentro de um scroll. */}
         <div style={{
           width: '100%',
-          height: '100%',
+          height: isStacked ? 'auto' : '100%',
           maxWidth: '620px',
-          padding: '28px 32px',
+          padding: 'clamp(20px, 4vw, 28px) clamp(20px, 5vw, 32px)',
           borderRadius: '24px',
           boxShadow: '0 15px 40px var(--shadow-card)',
           backgroundColor: 'var(--color-bg-card)',
@@ -491,10 +663,50 @@ Pleased the Lord
           overflowY: 'auto'
         }}>
 
-          {/* Topo do Card - Informações */}
-          <h2 style={{ margin: '0 0 10px 0', color: 'var(--color-primary)', fontSize: '36px' }}>
-            {tabData.musica}
-          </h2>
+          {/* Topo do Card - Informações. Grid de 3 colunas (espaçador | título |
+              ✕) pra manter o título centralizado no card e o ✕ encostado na
+              direita, sem um sobrepor o outro. O ✕ volta pra tela de resultados
+              (mesmo efeito do botão Voltar do navegador) e só aparece quando se
+              chegou aqui por uma busca. */}
+          <div style={{ display: 'grid', gridTemplateColumns: '38px 1fr 38px', alignItems: 'start', gap: '12px', margin: '0 0 10px 0' }}>
+            <span aria-hidden="true" />
+
+            <h2 style={{ margin: 0, color: 'var(--color-primary)', fontSize: 'clamp(24px, 6vw, 36px)', textAlign: 'center', minWidth: 0, overflowWrap: 'anywhere' }}>
+              {tabData.musica}
+            </h2>
+
+            {veioDosResultados ? (
+              <button
+                type="button"
+                onClick={() => sairComGuardaEdicao(voltarAosResultados)}
+                title="Voltar aos resultados da busca"
+                aria-label="Voltar aos resultados da busca"
+                style={{
+                  justifySelf: 'end',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '38px',
+                  height: '38px',
+                  marginTop: '4px',
+                  fontSize: '18px',
+                  lineHeight: 1,
+                  background: 'none',
+                  color: 'var(--color-text-muted)',
+                  border: 'var(--border-width-base) solid var(--color-border)',
+                  borderRadius: '10px',
+                  cursor: 'pointer',
+                  transition: '0.2s'
+                }}
+                onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--color-primary)'; e.currentTarget.style.color = 'var(--color-primary)'; }}
+                onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.color = 'var(--color-text-muted)'; }}
+              >
+                ✕
+              </button>
+            ) : (
+              <span aria-hidden="true" />
+            )}
+          </div>
           <hr style={{ border: 'none', borderTop: '2px solid var(--color-border-divider-alt)', marginBottom: '20px' }} />
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '16px', color: 'var(--color-text-secondary)' }}>
@@ -513,11 +725,15 @@ Pleased the Lord
             {/* Botão de Curtida */}
             <button
               onClick={handleCurtida}
+              disabled={processandoCurtida}
               style={{
                 padding: '16px',
                 backgroundColor: curtido ? 'var(--color-bg-liked)' : 'var(--color-bg-not-liked)',
                 color: curtido ? 'var(--color-text-success)' : 'var(--color-text-main)',
                 border: curtido ? '2px solid var(--color-border-liked)' : '2px solid var(--color-border)',
+                // Sem cursor "wait" nem mudança de opacidade: a trava contra
+                // cliques repetidos é o `disabled` + `curtindoRef`, que
+                // engolem o clique extra em silêncio, sem feedback visual.
                 cursor: 'pointer',
                 fontSize: '18px',
                 fontWeight: 'bold',
@@ -535,12 +751,13 @@ Pleased the Lord
               </span>
             </button>
 
-            {/* Compartilhar e Exportar lado a lado, cada um com metade do espaço */}
-            <div style={{ display: 'flex', gap: '10px' }}>
+            {/* Compartilhar e Exportar lado a lado, cada um com metade do espaço
+                (empilham quando não cabem os dois na largura). */}
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <button
                 onClick={handleCopiarLink}
                 style={{
-                  flex: 1,
+                  flex: '1 1 140px',
                   minWidth: 0,
                   padding: '14px',
                   backgroundColor: linkCopiado ? 'var(--color-bg-liked)' : 'transparent',
@@ -563,7 +780,7 @@ Pleased the Lord
               <button
                 onClick={handleExportarPdf}
                 style={{
-                  flex: 1,
+                  flex: '1 1 140px',
                   minWidth: 0,
                   padding: '14px',
                   backgroundColor: 'transparent',
@@ -589,7 +806,7 @@ Pleased the Lord
               <>
                 {editando ? (
                   <button
-                    onClick={handleSalvarEdicao}
+                    onClick={() => handleSalvarEdicao()}
                     disabled={salvando}
                     style={{
                       padding: '14px',

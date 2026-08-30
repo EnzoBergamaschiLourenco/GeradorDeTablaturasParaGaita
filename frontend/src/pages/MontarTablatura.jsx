@@ -8,12 +8,17 @@ import CustomModal from '../components/CustomModal';
 import LoadingOverlay from '../components/LoadingOverlay';
 import TopBar from '../components/TopBar';
 import { useAnimatedNavigate, fadeStyle } from '../hooks/useAnimatedNavigate';
+import { useIsStacked, useIsCoarsePointer } from '../hooks/useMediaQuery';
 import { useCarregamentoMinimo, usePontinhos } from '../hooks/useCarregamento';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useModal } from '../hooks/useModal';
 import { buscarTonsPorTipo, buscarLayoutPorTomETipo } from '../services/gaitaLayoutService';
 import { salvarNovaTablatura, avaliarMidi } from '../services/tablaturaService';
 import { buscarPartesMidi, traduzirTablatura } from '../services/gaitaApiService';
+
+// Texto do aviso mostrado em qualquer tentativa de sair da montagem (edição
+// ou revisão) sem ter salvo.
+const MSG_SAIR_MONTAGEM = 'Tudo será perdido, deseja sair mesmo assim?';
 
 // ================= COMPONENTE PRINCIPAL =================
 export default function MontarTablatura() {
@@ -26,6 +31,12 @@ export default function MontarTablatura() {
 
   const location = useLocation();
   const { expanded, contentVisible, navigateAnimated } = useAnimatedNavigate(true);
+  // isStacked: abaixo de BP_STACK as duas colunas do editor empilham e a
+  // página rola no fluxo normal (sem sticky de altura fixa).
+  // isCoarse: em toque, habilita tap-to-place, botões de linha sempre
+  // visíveis e alvos de toque maiores.
+  const isStacked = useIsStacked();
+  const isCoarse = useIsCoarsePointer();
 
   const dadosRecebidos = location.state || {};
   const musicaId = dadosRecebidos.musicaId || 1;
@@ -84,6 +95,91 @@ export default function MontarTablatura() {
   }, []);
 
   const [textoTablatura, setTextoTablatura] = useState('');
+
+  // ═══════════════ GUARDA DE SAÍDA (edição e revisão) ═══════════════
+  // Montar a tablatura não pode ser abandonado por engano: nada é salvo até
+  // "Salvar Tablatura". Enquanto esta tela está aberta — nas DUAS etapas
+  // (edição e revisão) — toda forma de sair passa por uma confirmação:
+  //  • título "HarmonicaTabs", chip de perfil e botão de login (via TopBar,
+  //    que recebe `navegarComConfirmacao` no lugar de `navigateAnimated`);
+  //  • botão Voltar do navegador (popstate + entrada-sentinela no histórico);
+  //  • recarregar / fechar a aba / sair do site (beforeunload — alerta nativo).
+  // A única saída sem pergunta é salvar com sucesso (handleSaveTablatura
+  // chama `sairSemGuarda`).
+  const guardaDesarmadaRef = useRef(false);
+  const sentinelaRef = useRef(false);
+
+  // Descarta a entrada-sentinela do histórico e só então navega, pra não
+  // sobrar um "/MontarTablatura" vazio acessível pelo Voltar depois.
+  const sairSemGuarda = useCallback((executarNavegacao) => {
+    guardaDesarmadaRef.current = true;
+    // A sentinela é a única entrada sem state do React Router (pushState(null)).
+    if (sentinelaRef.current && window.history.state === null) {
+      window.history.go(-1);
+      setTimeout(executarNavegacao, 0);
+    } else {
+      executarNavegacao();
+    }
+  }, []);
+
+  // Vai no lugar de `navigateAnimated` no TopBar: confirma antes de sair.
+  const navegarComConfirmacao = useCallback((path, opts) => {
+    if (guardaDesarmadaRef.current) {
+      navigateAnimated(path, opts);
+      return;
+    }
+    showConfirm(MSG_SAIR_MONTAGEM, {
+      title: 'Sair sem salvar?',
+      type: 'warning',
+      confirmLabel: 'Sair sem salvar',
+      onConfirm: () => {
+        closeModal();
+        sairSemGuarda(() => navigateAnimated(path, opts));
+      }
+    });
+  }, [navigateAnimated, showConfirm, closeModal, sairSemGuarda]);
+
+  // Voltar do navegador: mantém uma entrada-sentinela no topo do histórico e
+  // intercepta o popstate pra confirmar antes de deixar a tela.
+  useEffect(() => {
+    if (!sentinelaRef.current) {
+      window.history.pushState(null, '', window.location.href);
+      sentinelaRef.current = true;
+    }
+
+    const onPopState = () => {
+      if (guardaDesarmadaRef.current) return;
+      // O Voltar consumiu a sentinela — repõe na hora pra segurar o usuário
+      // enquanto ele decide no modal.
+      window.history.pushState(null, '', window.location.href);
+      showConfirm(MSG_SAIR_MONTAGEM, {
+        title: 'Sair sem salvar?',
+        type: 'warning',
+        confirmLabel: 'Sair sem salvar',
+        onConfirm: () => {
+          closeModal();
+          guardaDesarmadaRef.current = true;
+          // -2 = a sentinela reposta + a própria entrada de MontarTablatura.
+          window.history.go(-2);
+        }
+      });
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Recarregar / fechar aba / sair do site: alerta nativo do navegador.
+  useEffect(() => {
+    const onBeforeUnload = (e) => {
+      if (guardaDesarmadaRef.current) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
 
   const {
     togglePlayAll, stop, seek, duration, isPlaying, playingId, tempoAtual, progress,
@@ -178,7 +274,9 @@ export default function MontarTablatura() {
         // Vai direto pra tela de visualização da tablatura recém-criada, em
         // vez de voltar pro menu — monta o mesmo formato de objeto que o
         // Menu passa pro VisualizarTabs ao clicar num resultado de busca.
-        navigateAnimated('/VisualizarTabs', {
+        // Salvou: libera a guarda de saída e descarta a entrada-sentinela
+        // antes de navegar (sem confirmação — o trabalho foi salvo).
+        sairSemGuarda(() => navigateAnimated('/VisualizarTabs', {
           expand: true,
           state: {
             tab: {
@@ -194,7 +292,7 @@ export default function MontarTablatura() {
               conteudo: textoTablatura
             }
           }
-        });
+        }));
       }
     } catch (err) {
       console.error(err);
@@ -514,35 +612,54 @@ export default function MontarTablatura() {
     return Math.max(0, Math.min(100, (x / rect.width) * 100));
   };
 
-  const handleBarraMouseDown = (e, idClicado) => {
+  const iniciarArrastoBarra = (clientX, currentTarget, idClicado) => {
     if (playingId !== idClicado) return;
-    const rect = e.currentTarget.getBoundingClientRect();
+    const rect = currentTarget.getBoundingClientRect();
     barraRectRef.current = rect;
-    const percent = calcularPercentDoEvento(e.clientX, rect);
+    const percent = calcularPercentDoEvento(clientX, rect);
     setPercentArrasto(percent);
     setArrastandoBarra(true);
     seekRef.current(percent);
   };
 
+  const handleBarraMouseDown = (e, idClicado) => {
+    iniciarArrastoBarra(e.clientX, e.currentTarget, idClicado);
+  };
+
+  // Mesma interação por toque (o drag nativo de mouse não dispara em touch).
+  const handleBarraTouchStart = (e, idClicado) => {
+    if (!e.touches[0]) return;
+    iniciarArrastoBarra(e.touches[0].clientX, e.currentTarget, idClicado);
+  };
+
   useEffect(() => {
     if (!arrastandoBarra) return;
 
-    const handleMove = (e) => {
+    const moverPara = (clientX) => {
       if (!barraRectRef.current) return;
-      setPercentArrasto(calcularPercentDoEvento(e.clientX, barraRectRef.current));
+      setPercentArrasto(calcularPercentDoEvento(clientX, barraRectRef.current));
     };
-    const handleUp = (e) => {
-      if (barraRectRef.current) {
-        seekRef.current(calcularPercentDoEvento(e.clientX, barraRectRef.current));
+    const soltarEm = (clientX) => {
+      if (barraRectRef.current && typeof clientX === 'number') {
+        seekRef.current(calcularPercentDoEvento(clientX, barraRectRef.current));
       }
       setArrastandoBarra(false);
     };
 
+    const handleMove = (e) => moverPara(e.clientX);
+    const handleUp = (e) => soltarEm(e.clientX);
+    const handleTouchMove = (e) => { if (e.touches[0]) moverPara(e.touches[0].clientX); };
+    const handleTouchEnd = (e) => soltarEm(e.changedTouches[0]?.clientX);
+
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd);
     return () => {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
     };
   }, [arrastandoBarra]);
 
@@ -801,6 +918,42 @@ export default function MontarTablatura() {
     setDraggingIds([]);
   };
 
+  // Fallback de toque: sem drag nativo, tocar numa linha adiciona ao FIM dela
+  // os cards de nota atualmente selecionados (tocar num card em "Partes
+  // Ativas" já seleciona, via handleNotaClick). Reusa a mesma coleta do
+  // handleDrop, sem o cálculo de posição — reordenar fino continua só no mouse.
+  const handleZonaTap = (linhaIndex) => {
+    if (!isCoarse || notasSelecionadas.length === 0) return;
+    const ids = notasSelecionadas;
+    const notasParaInserir = [];
+
+    Object.keys(notasPorParte).forEach(chave => {
+      notasPorParte[chave].forEach(n => {
+        if (ids.includes(n.id) && !notasParaInserir.find(x => x.id === n.id)) notasParaInserir.push(n);
+      });
+    });
+    linhasLetra.forEach(linha => {
+      linha.notas.forEach(n => {
+        if (ids.includes(n.id) && !notasParaInserir.find(x => x.id === n.id)) notasParaInserir.push(n);
+      });
+    });
+
+    if (notasParaInserir.length === 0) return;
+    notasParaInserir.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+
+    setLinhasLetra(prev => {
+      const novasLinhas = prev.map(l => ({ ...l, notas: [...l.notas] }));
+      novasLinhas.forEach(linha => {
+        linha.notas = linha.notas.filter(n => !ids.includes(n.id));
+      });
+      const destino = novasLinhas[linhaIndex];
+      if (!destino) return novasLinhas;
+      destino.notas.push(...notasParaInserir);
+      return novasLinhas;
+    });
+    setNotasSelecionadas([]);
+  };
+
   const removerNotaDaLinha = (linhaIndex, notaId) => {
     setLinhasLetra(prev => {
       const novasLinhas = [...prev];
@@ -906,7 +1059,7 @@ export default function MontarTablatura() {
                   value={oitavaInfo.selecionada}
                   onClick={e => e.stopPropagation()}
                   onChange={e => handleMudancaOitava(parte.id, parseInt(e.target.value))}
-                  style={s.selectOitavaStyle}
+                  style={{ ...s.selectOitavaStyle, ...(isCoarse ? { minHeight: '36px', fontSize: '13px' } : {}) }}
                 >
                   {oitavaInfo.posicoes.map((p, idx) => {
                     // AQUI: A estrela só aparece se a oitava for nativamente perfeita e não tiver o ajuste manual
@@ -950,7 +1103,11 @@ export default function MontarTablatura() {
               <span style={s.volumePercentStyle}>{formatarPercentualVolume(volumes[parte.id])}</span>
               <button
                 type="button"
-                style={{ ...s.btnSoloStyle, ...(soloParteId === parte.id ? s.btnSoloAtivoStyle : {}) }}
+                style={{
+                  ...s.btnSoloStyle,
+                  ...(isCoarse ? { width: '36px', height: '36px' } : {}),
+                  ...(soloParteId === parte.id ? s.btnSoloAtivoStyle : {})
+                }}
                 onClick={() => alternarSolo(parte.id, partesAdicionadas.map(p => p.id))}
                 title={soloParteId === parte.id ? 'Desativar solo (restaurar volumes)' : 'Ouvir somente esta parte (solo)'}
               >
@@ -1017,13 +1174,19 @@ export default function MontarTablatura() {
     return (
       <>
         <div
-          style={{ ...s.barraFundo, cursor: arrastandoBarra ? 'grabbing' : 'pointer' }}
+          style={{
+            ...s.barraFundo,
+            ...(isCoarse ? { height: '20px', touchAction: 'none' } : {}),
+            cursor: arrastandoBarra ? 'grabbing' : 'pointer'
+          }}
           onMouseDown={(e) => handleBarraMouseDown(e, 'ALL')}
+          onTouchStart={(e) => handleBarraTouchStart(e, 'ALL')}
         >
           <div style={{ ...s.barraProgresso, width: `${percentExibido}%` }} />
           <div
             style={{
               ...s.barraThumb,
+              ...(isCoarse ? { width: '22px', height: '22px' } : {}),
               left: `${percentExibido}%`,
               cursor: arrastandoBarra ? 'grabbing' : 'grab'
             }}
@@ -1031,7 +1194,7 @@ export default function MontarTablatura() {
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
           <select
-            style={s.selectVelocidadeCompacto}
+            style={{ ...s.selectVelocidadeCompacto, ...(isCoarse ? { minHeight: '40px', fontSize: '13px' } : {}) }}
             onChange={(e) => changeSpeed(parseFloat(e.target.value))}
             value={playbackSpeed}
           >
@@ -1061,8 +1224,10 @@ export default function MontarTablatura() {
           confirmLabel={modalConfig.confirmLabel}
           onClose={closeModal}
         />
-        <TopBar expanded={expanded} navigateAnimated={navigateAnimated} />
-        <div style={{ ...s.mainCard, maxWidth: '800px', textAlign: 'center', ...fadeStyle(contentVisible) }}>
+        {/* navegarComConfirmacao: título/perfil/login pedem confirmação antes
+            de sair (perde tudo que foi montado). */}
+        <TopBar expanded={expanded} navigateAnimated={navegarComConfirmacao} />
+        <div style={{ ...s.mainCard, maxWidth: '800px', padding: 'clamp(20px, 5vw, 45px)', textAlign: 'center', ...fadeStyle(contentVisible) }}>
           <h2 style={{ color: 'var(--color-primary)', marginBottom: 5 }}>{nome}</h2>
           <p style={{ color: 'var(--color-text-muted)', marginBottom: 30 }}>{autor}</p>
 
@@ -1113,8 +1278,9 @@ export default function MontarTablatura() {
             value={textoTablatura}
             onChange={e => setTextoTablatura(e.target.value)}
             style={{
-              width: '100%', height: '300px', fontFamily: 'monospace', fontSize: '16px',
-              padding: '12px', borderRadius: '8px', border: 'var(--border-width-base) solid var(--color-border-soft)'
+              width: '100%', height: 'clamp(220px, 45vh, 300px)', fontFamily: 'monospace', fontSize: '16px',
+              padding: '12px', borderRadius: '8px', border: 'var(--border-width-base) solid var(--color-border-soft)',
+              boxSizing: 'border-box'
             }}
           />
 
@@ -1139,12 +1305,22 @@ export default function MontarTablatura() {
         confirmLabel={modalConfig.confirmLabel}
         onClose={closeModal}
       />
-      <TopBar expanded={expanded} navigateAnimated={navigateAnimated} />
-      <div style={{ ...s.contentWrapper, ...fadeStyle(contentVisible) }}>
-        {/* COLUNA ESQUERDA (fixa, com Partes Ativas rolando internamente) */}
+      {/* navegarComConfirmacao: título/perfil/login pedem confirmação antes
+          de sair (perde tudo que foi montado). */}
+      <TopBar expanded={expanded} navigateAnimated={navegarComConfirmacao} />
+      <div style={{
+        ...s.contentWrapper,
+        ...(isStacked ? { flexDirection: 'column', alignItems: 'stretch' } : {}),
+        ...fadeStyle(contentVisible)
+      }}>
+        {/* COLUNA ESQUERDA (fixa, com Partes Ativas rolando internamente;
+            no modo empilhado vira fluxo normal e a página rola). */}
         <div style={{
-          display: 'flex', flexDirection: 'column', gap: '20px', flex: 1,
-          position: 'sticky', top: '110px', height: 'calc(100vh - 140px)'
+          display: 'flex', flexDirection: 'column', gap: '20px', minWidth: 0,
+          flex: isStacked ? 'none' : 1,
+          width: isStacked ? '100%' : undefined,
+          position: isStacked ? 'static' : 'sticky', top: '110px',
+          height: isStacked ? 'auto' : 'calc(100vh - 140px)'
         }}>
 
           {/* BLOCO: Configurações da Gaita (fixo, não rola) — recolhe com
@@ -1225,10 +1401,10 @@ export default function MontarTablatura() {
 
           {/* BLOCO: Partes Ativas (separado das Configurações, rola internamente) */}
           {partesAdicionadas.length > 0 && (
-            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: isStacked ? 'none' : 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
               <h3 style={s.tituloSecaoConfig}>Partes Ativas</h3>
 
-              <div style={{ ...s.columnBox, padding: '22px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ ...s.columnBox, padding: '22px', flex: isStacked ? 'none' : 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '12px', flexShrink: 0, gap: '10px' }}>
                   <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                     <button
@@ -1241,7 +1417,7 @@ export default function MontarTablatura() {
                     </button>
                     <button
                       type="button"
-                      style={s.btnMaximizarStyle}
+                      style={{ ...s.btnMaximizarStyle, ...(isCoarse ? { width: '36px', height: '36px' } : {}) }}
                       onClick={() => setPartesMaximizado(true)}
                       title="Maximizar Partes Ativas"
                       aria-label="Maximizar Partes Ativas"
@@ -1256,7 +1432,7 @@ export default function MontarTablatura() {
                   </div>
                 </div>
 
-                <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '4px 20px 4px 4px', margin: '-4px -20px -4px -4px' }}>
+                <div style={{ flex: 1, minHeight: 0, maxHeight: isStacked ? '60vh' : undefined, overflowY: 'auto', overflowX: 'hidden', padding: '4px 20px 4px 4px', margin: '-4px -20px -4px -4px' }}>
                   {renderListaPartes()}
                 </div>
               </div>
@@ -1264,22 +1440,25 @@ export default function MontarTablatura() {
           )}
         </div>
 
-        {/* COLUNA DIREITA (Sticky com Scroll Interno) */}
+        {/* COLUNA DIREITA (Sticky com Scroll Interno; empilha no fluxo normal
+            abaixo de BP_STACK) */}
         <div style={{
-          ...s.columnBox, flex: 1.2, position: 'sticky', top: '110px',
-          height: 'calc(100vh - 140px)', display: 'flex', flexDirection: 'column', paddingBottom: '25px'
+          ...s.columnBox, position: isStacked ? 'static' : 'sticky', top: '110px',
+          height: isStacked ? 'auto' : 'calc(100vh - 140px)',
+          ...(isStacked ? { flex: 'none', width: '100%', minWidth: 0 } : { flex: 1.2 }),
+          display: 'flex', flexDirection: 'column', paddingBottom: '25px'
         }}>
           <div style={{
             marginBottom: '20px', borderBottom: 'var(--border-width-base) solid var(--color-border-alt)', paddingBottom: '15px',
-            flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px'
+            flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px', flexWrap: 'wrap'
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <h2 style={{ color: 'var(--color-text-main)', margin: 0, fontSize: '28px', fontWeight: 'bold' }}>{nome}</h2>
+              <h2 style={{ color: 'var(--color-text-main)', margin: 0, fontSize: 'clamp(20px, 5vw, 28px)', fontWeight: 'bold' }}>{nome}</h2>
               <span style={{ color: 'var(--color-text-muted)' }}>{autor}</span>
             </div>
 
             {partesAdicionadas.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', minWidth: '220px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: isStacked ? '100%' : '220px', flex: isStacked ? '1 1 100%' : undefined }}>
                 <button
                   style={{ ...s.btnPlayAll, padding: '12px 18px', fontSize: '14px', borderRadius: '8px' }}
                   onClick={handleBtnPlayClick}
@@ -1291,7 +1470,7 @@ export default function MontarTablatura() {
             )}
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px' }}>
+          <div style={{ flex: isStacked ? 'none' : 1, overflowY: isStacked ? 'visible' : 'auto', paddingRight: '10px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', paddingBottom: '30px' }}>
               {linhasLetra.map((linha, index) => (
                 <div key={linha.id} style={s.linhaContainer}>
@@ -1299,8 +1478,13 @@ export default function MontarTablatura() {
                     style={s.zonaDrop}
                     onDragOver={(e) => handleDragOverLinha(e, index)}
                     onDrop={(e) => handleDrop(e, index)}
+                    onClick={() => handleZonaTap(index)}
                   >
-                    {linha.notas.length === 0 && <span style={{ color: 'var(--color-border-soft)', fontSize: '12px' }}>Solte notas aqui...</span>}
+                    {linha.notas.length === 0 && (
+                      <span style={{ color: 'var(--color-border-soft)', fontSize: '12px' }}>
+                        {isCoarse && notasSelecionadas.length > 0 ? 'Toque para adicionar aqui' : 'Solte notas aqui...'}
+                      </span>
+                    )}
 
                     {linha.notas.map((nota, notaIndex) => [
                       // PREVIEW: Agora atrelado ao ID do card exato, fugindo da discrepância de índices
@@ -1318,7 +1502,7 @@ export default function MontarTablatura() {
                           cursor: 'grab',
                           display: draggingIds.includes(nota.id) ? 'none' : 'flex'
                         }}
-                        onClick={() => removerNotaDaLinha(index, nota.id)}
+                        onClick={(e) => { e.stopPropagation(); removerNotaDaLinha(index, nota.id); }}
                         title="Clique para remover. Arraste para reordenar."
                         draggable
                         onDragStart={(e) => {
@@ -1340,10 +1524,10 @@ export default function MontarTablatura() {
                       ))
                     )}
 
-                    <input type="text" placeholder="+" style={s.inputNotaManual} onKeyDown={(e) => handleAdicionarNotaManual(e, index)} />
+                    <input type="text" placeholder="+" style={s.inputNotaManual} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => handleAdicionarNotaManual(e, index)} />
                   </div>
                   <div
-                    style={{ ...s.textoLetra, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '32px' }}
+                    style={{ ...s.textoLetra, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: isCoarse ? 'space-between' : 'center', gap: isCoarse ? '8px' : 0, minHeight: '32px' }}
                     onMouseEnter={() => setHoveredLinhaIndex(index)}
                     onMouseLeave={() => setHoveredLinhaIndex(null)}
                   >
@@ -1365,19 +1549,19 @@ export default function MontarTablatura() {
                       </div>
                     ) : (
                       <>
-                        <span>{linha.texto || <span style={{ color: 'var(--color-border-soft)', fontStyle: 'italic' }}>[Linha vazia]</span>}</span>
+                        <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{linha.texto || <span style={{ color: 'var(--color-border-soft)', fontStyle: 'italic' }}>[Linha vazia]</span>}</span>
 
-                        {hoveredLinhaIndex === index && (
-                          <div style={{ position: 'absolute', right: '10px', display: 'flex', gap: '8px' }}>
+                        {(hoveredLinhaIndex === index || isCoarse) && (
+                          <div style={{ ...(isCoarse ? { position: 'static', flexShrink: 0 } : { position: 'absolute', right: '10px' }), display: 'flex', gap: '8px' }}>
                             <button
                               onClick={() => handleEditLinha(index, linha.texto)}
-                              style={{ cursor: 'pointer', background: 'var(--color-bg-card)', border: '1px solid var(--color-border-soft)', borderRadius: '4px', padding: '4px' }}
+                              style={{ cursor: 'pointer', background: 'var(--color-bg-card)', border: '1px solid var(--color-border-soft)', borderRadius: '4px', padding: isCoarse ? '8px 10px' : '4px' }}
                             >
                               ✏️
                             </button>
                             <button
                               onClick={() => adicionarLinhaAbaixo(index)}
-                              style={{ cursor: 'pointer', background: 'var(--color-bg-card)', border: '1px solid var(--color-border-soft)', borderRadius: '4px', padding: '4px' }}
+                              style={{ cursor: 'pointer', background: 'var(--color-bg-card)', border: '1px solid var(--color-border-soft)', borderRadius: '4px', padding: isCoarse ? '8px 10px' : '4px' }}
                             >
                               ➕
                             </button>
@@ -1393,7 +1577,7 @@ export default function MontarTablatura() {
                                 });
                               }}
                               title="Excluir linha"
-                              style={{ cursor: 'pointer', background: 'var(--color-bg-card)', border: '1px solid var(--color-border-soft)', borderRadius: '4px', padding: '4px' }}
+                              style={{ cursor: 'pointer', background: 'var(--color-bg-card)', border: '1px solid var(--color-border-soft)', borderRadius: '4px', padding: isCoarse ? '8px 10px' : '4px' }}
                             >
                               ✖️
                             </button>
