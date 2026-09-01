@@ -509,7 +509,7 @@ export default function CriarTabs() {
                     <div style={iconBoxPrimary}>+</div>
                     <div style={{ flex: 1, paddingLeft: 15, textAlign: 'left' }}>
                       <span style={{ color: 'var(--color-text-main)', fontWeight: 'bold', fontSize: '15px' }}>Adicionar Novo MIDI</span>
-                      <small style={{ display: 'block', color: 'var(--color-text-muted)', fontSize: 12, marginTop: 2 }}>Fazer upload do arquivo .mid</small>
+                      <small style={{ display: 'block', color: 'var(--color-text-muted)', fontSize: 12, marginTop: 2 }}>Fazer upload do arquivo .mid / .midi</small>
                     </div>
                     <button style={uploadButton} onClick={() => fileInputRef.current.click()} disabled={uploadingMidi}>
                       {uploadingMidi ? '...' : 'Selecionar'}

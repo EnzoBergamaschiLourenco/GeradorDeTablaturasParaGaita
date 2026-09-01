@@ -58,7 +58,7 @@ def processar_traducao_gaita(caminho_completo, parte_id, tom, tipo, overrides=No
         target_offset = int(overrides.pop("__target_offset__"))
 
     caminho_local = resolver_caminho_seguro(caminho_completo)
-    mid = mido.MidiFile(caminho_local)
+    mid = mido.MidiFile(caminho_local, clip=True)
     tpb = mid.ticks_per_beat
     tempo_map = _build_tempo_map(mid)
 

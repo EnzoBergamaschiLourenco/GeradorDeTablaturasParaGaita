@@ -20,7 +20,7 @@ def baixar_e_extrair_partes(caminho_completo: str):
         except Exception as e:
             raise ErroDeNegocio(f"Erro ao baixar '{caminho_completo}' do Supabase: {str(e)}")
 
-    mid = mido.MidiFile(caminho_local)
+    mid = mido.MidiFile(caminho_local, clip=True)
     partes = []
 
     if mid.type == 0:
@@ -54,7 +54,7 @@ def extrair_canal_midi(caminho_completo: str, canal: int):
     from services.gaita_translation_service import _build_tempo_map
 
     caminho_local = resolver_caminho_seguro(caminho_completo)
-    mid = mido.MidiFile(caminho_local)
+    mid = mido.MidiFile(caminho_local, clip=True)
     tpb = mid.ticks_per_beat
     tempo_map = _build_tempo_map(mid)
 
@@ -122,7 +122,7 @@ def construir_midi_canal(eventos_notas, eventos_config, tpb, tempo_map, nome_sai
         nova_track.append(msg)
         ultimo_tick = tick
 
-    mid = mido.MidiFile(type=0, ticks_per_beat=tpb)  # tipo 0, uma única track
+    mid = mido.MidiFile(type=0, ticks_per_beat=tpb, clip=True)  # tipo 0, uma única track
     mid.tracks.append(nova_track)
     mid.save(nome_saida)
 
@@ -141,7 +141,7 @@ def exportar_filtro_midi(caminho_completo: str, partes_ids: list):
     if os.path.exists(caminho_saida):
         os.remove(caminho_saida)
 
-    mid_original = mido.MidiFile(caminho_origem)
+    mid_original = mido.MidiFile(caminho_origem, clip=True)
 
     canais = {int(p.split('_')[1]) for p in partes_ids if p.startswith('channel_')}
     tracks = {int(p.split('_')[1]) for p in partes_ids if p.startswith('track_')}
@@ -173,13 +173,13 @@ def exportar_filtro_midi(caminho_completo: str, partes_ids: list):
                 ultimo_tick_mantido = abs_tick
             # else: ignorar completamente (canais não selecionados)
 
-        novo_mid = mido.MidiFile(type=0, ticks_per_beat=mid_original.ticks_per_beat)
+        novo_mid = mido.MidiFile(type=0, ticks_per_beat=mid_original.ticks_per_beat, clip=True)
         novo_mid.tracks.append(nova_track)
         novo_mid.save(caminho_saida)
         return caminho_saida
 
     # --- TRATAMENTO PARA MIDI TIPO 1 (TRACKS) ---
-    novo_mid = mido.MidiFile(type=1, ticks_per_beat=mid_original.ticks_per_beat)
+    novo_mid = mido.MidiFile(type=1, ticks_per_beat=mid_original.ticks_per_beat, clip=True)
 
     # Copia a primeira track (meta‑eventos)
     if mid_original.tracks:
