@@ -47,6 +47,18 @@ body {
   animation: ht-fade-swap 240ms ease both;
 }
 
+/* Preview de drop (o quadrado azul serrilhado que aparece ao arrastar uma
+   nota pra cima de uma linha): pulsa suavemente pra sinalizar onde a nota
+   vai cair. A animação sobrepõe o opacity inline do elemento. Neutralizada
+   pelo bloco de prefers-reduced-motion abaixo. */
+@keyframes ht-drop-pulse {
+  0%, 100% { opacity: 0.28; }
+  50%      { opacity: 0.75; }
+}
+.ht-preview-drop {
+  animation: ht-drop-pulse 850ms ease-in-out infinite;
+}
+
 /* Acessibilidade: quem pede menos movimento não recebe as transições de
    fade/expand. A navegação continua funcionando (os timeouts em JS não
    dependem do CSS) — só o efeito visual fica instantâneo. */

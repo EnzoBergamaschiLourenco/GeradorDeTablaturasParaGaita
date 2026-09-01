@@ -103,6 +103,9 @@ export default function MontarTablatura() {
   const [linhasLetra, setLinhasLetra] = useState([]);
   const [dragOverInfo, setDragOverInfo] = useState(null);
   const [draggingIds, setDraggingIds] = useState([]);
+  // Retângulo grande que envolve as linhas da tablatura. Soltar uma nota
+  // arrastada FORA dele conta como "tirei a nota" (igual clicar nela).
+  const areaTablaturaRef = useRef(null);
   const [mostrarPreview, setMostrarPreview] = useState(false);
   const [hoveredLinhaIndex, setHoveredLinhaIndex] = useState(null);
   const [editingLinhaIndex, setEditingLinhaIndex] = useState(null);
@@ -891,7 +894,11 @@ export default function MontarTablatura() {
     e.preventDefault();
     e.stopPropagation();
     const notasIdsStr = e.dataTransfer.getData('notasIds');
-    if (!notasIdsStr) return;
+    if (!notasIdsStr) {
+      setDragOverInfo(null);
+      setDraggingIds([]);
+      return;
+    }
     const notasIds = JSON.parse(notasIdsStr);
     const container = e.currentTarget;
     const {
@@ -974,12 +981,45 @@ export default function MontarTablatura() {
     setDraggingIds([]);
   };
 
-  // Fallback de toque: sem drag nativo, tocar numa linha adiciona ao FIM dela
-  // os cards de nota atualmente selecionados (tocar num card em "Partes
-  // Ativas" já seleciona, via handleNotaClick). Reusa a mesma coleta do
-  // handleDrop, sem o cálculo de posição — reordenar fino continua só no mouse.
+  // Rede de segurança + "soltar fora tira a nota". Enquanto há um arraste,
+  // escuta 'dragend'/'drop' no window (fase de captura):
+  //  - se a nota foi solta FORA do retângulo grande da tablatura, remove-a da
+  //    linha (mesmo efeito de clicar nela pra devolver);
+  //  - sempre limpa o estado de arraste. Isso cobre o caso do card de origem
+  //    ficar com display:none e o 'dragend' dele não chegar ao React (senão o
+  //    serrilhado azul continuaria piscando e o campo cinza não voltaria).
+  // clientX/clientY 0,0 = cancelamento sem posição (ex.: Esc) — aí não remove.
+  useEffect(() => {
+    if (draggingIds.length === 0) return;
+    const ids = draggingIds;
+    const finalizar = (e) => {
+      const rect = areaTablaturaRef.current?.getBoundingClientRect();
+      const temPos = !!e && (e.clientX !== 0 || e.clientY !== 0);
+      if (rect && temPos) {
+        const fora =
+          e.clientX < rect.left || e.clientX > rect.right ||
+          e.clientY < rect.top || e.clientY > rect.bottom;
+        if (fora) removerNotasDasLinhas(ids);
+      }
+      setDragOverInfo(null);
+      setDraggingIds([]);
+    };
+    window.addEventListener('dragend', finalizar, true);
+    window.addEventListener('drop', finalizar, true);
+    return () => {
+      window.removeEventListener('dragend', finalizar, true);
+      window.removeEventListener('drop', finalizar, true);
+    };
+  }, [draggingIds]);
+
+  // Clique/toque numa linha com notas selecionadas adiciona ao FIM dela os
+  // cards atualmente selecionados (clicar num card em "Partes Ativas" já
+  // seleciona, via handleNotaClick). No desktop isto complementa o arraste:
+  // depois que o serrilhado azul aparece, clicar dentro dele solta as notas
+  // ali. Reusa a mesma coleta do handleDrop, sem cálculo de posição —
+  // reordenar fino continua só no mouse via arraste.
   const handleZonaTap = (linhaIndex) => {
-    if (!isCoarse || notasSelecionadas.length === 0) return;
+    if (notasSelecionadas.length === 0) return;
     const ids = notasSelecionadas;
     const notasParaInserir = [];
 
@@ -1021,6 +1061,31 @@ export default function MontarTablatura() {
     });
   };
 
+  // Tira um conjunto de notas de QUALQUER linha em que estejam. Usado quando
+  // o usuário arrasta e solta as notas fora do retângulo da tablatura.
+  const removerNotasDasLinhas = (ids) => {
+    if (!ids || ids.length === 0) return;
+    const idSet = new Set(ids);
+    setLinhasLetra(prev => {
+      let mudou = false;
+      const novas = prev.map(l => {
+        const filtradas = l.notas.filter(n => !idSet.has(n.id));
+        if (filtradas.length === l.notas.length) return l;
+        mudou = true;
+        return { ...l, notas: filtradas };
+      });
+      return mudou ? novas : prev;
+    });
+    setNotasSelecionadas([]);
+  };
+
+  // Campo de nota manual: sem espaços e no máximo 5 caracteres (ex.: "-(48)").
+  const LIMITE_NOTA_MANUAL = 5;
+  const limitarNotaManual = (e) => {
+    const limpo = e.target.value.replace(/\s/g, '').slice(0, LIMITE_NOTA_MANUAL);
+    if (limpo !== e.target.value) e.target.value = limpo;
+  };
+
   const handleAdicionarNotaManual = (e, linhaIndex) => {
     if (e.key === 'Enter' && e.target.value.trim() !== '') {
       const novaNota = { id: `nota-manual-${Date.now()}`, valor: e.target.value.trim(), parteOrigem: 'manual' };
@@ -1060,6 +1125,9 @@ export default function MontarTablatura() {
       });
       return novasLinhas;
     });
+    // Na visão de uma linha por vez (tela menor), já pula o foco pra linha
+    // recém-criada. Sem efeito visível na coluna larga.
+    setLinhaFocoIndex(index + 1);
   };
 
   const deletarLinha = (index) => {
@@ -1226,6 +1294,12 @@ export default function MontarTablatura() {
     );
   });
 
+  // Sempre que a quantidade de notas selecionadas / arrastadas muda, este
+  // valor muda junto. Ele entra no `key` de cada quadrado serrilhado, então
+  // todos remontam no mesmo commit e a animação de piscar reinicia do zero
+  // sincronizada — inclusive nos que já estavam piscando.
+  const geracaoSerrilhado = `${draggingIds.length}-${notasSelecionadas.length}`;
+
   // Uma "Linha de nota e letra" da montagem: número à esquerda, a zona de
   // soltar/tocar notas (com preview de arraste, tap-to-place, input manual) e,
   // abaixo, a linha da letra com seus botões de editar/adicionar/excluir.
@@ -1248,7 +1322,7 @@ export default function MontarTablatura() {
           onDrop={(e) => handleDrop(e, index)}
           onClick={() => handleZonaTap(index)}
         >
-          {linha.notas.length === 0 && (
+          {linha.notas.length === 0 && draggingIds.length === 0 && notasSelecionadas.length === 0 && (
             <span style={{
               color: isCoarse && notasSelecionadas.length > 0 ? 'var(--color-primary)' : 'var(--color-border-soft)',
               fontSize: '12px',
@@ -1262,7 +1336,7 @@ export default function MontarTablatura() {
             // PREVIEW: atrelado ao ID do card exato, fugindo da discrepância de índices
             dragOverInfo?.linhaIndex === index && dragOverInfo?.targetNotaId === nota.id && !dragOverInfo?.isAfterLast && (
               (draggingIds.length > 0 ? draggingIds : [1]).map((dragId, idx) => (
-                <div key={`preview-${nota.id}-${idx}`} style={{ ...s.cardNotaAlocada, opacity: 0.5, border: '2px dashed var(--color-primary)', backgroundColor: 'transparent', color: 'transparent', pointerEvents: 'none' }}>+</div>
+                <div key={`preview-${nota.id}-${idx}-${geracaoSerrilhado}`} className="ht-preview-drop" style={{ ...s.cardNotaAlocada, opacity: 0.5, border: '2px dashed var(--color-primary)', backgroundColor: 'transparent', color: 'transparent', pointerEvents: 'none' }}>+</div>
               ))
             ),
             // CARD REAL
@@ -1289,14 +1363,34 @@ export default function MontarTablatura() {
             </div>
           ])}
 
-          {/* PREVIEW no final da linha */}
+          {/* PREVIEW no final da linha (linha sob o cursor) */}
           {dragOverInfo?.linhaIndex === index && dragOverInfo?.isAfterLast && (
             (draggingIds.length > 0 ? draggingIds : [1]).map((dragId, idx) => (
-              <div key={`preview-end-${idx}`} style={{ ...s.cardNotaAlocada, opacity: 0.5, border: '2px dashed var(--color-primary)', backgroundColor: 'transparent', color: 'transparent', pointerEvents: 'none' }}>+</div>
+              <div key={`preview-end-${idx}-${geracaoSerrilhado}`} className="ht-preview-drop" style={{ ...s.cardNotaAlocada, opacity: 0.5, border: '2px dashed var(--color-primary)', backgroundColor: 'transparent', color: 'transparent', pointerEvents: 'none' }}>+</div>
             ))
           )}
 
-          <input type="text" placeholder="+" style={s.inputNotaManual} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => handleAdicionarNotaManual(e, index)} />
+          {/* Enquanto QUALQUER nota está sendo arrastada OU há notas
+              selecionadas (só clicadas em "Partes Ativas"), toda linha que não
+              está sob o cursor mostra um serrilhado azul piscando, deixando
+              claro que dá pra colocar ali. */}
+          {(draggingIds.length > 0 || notasSelecionadas.length > 0) && dragOverInfo?.linhaIndex !== index && (
+            (draggingIds.length > 0 ? draggingIds : notasSelecionadas).map((pid, idx) => (
+              <div key={`preview-sel-${pid}-${idx}-${geracaoSerrilhado}`} className="ht-preview-drop" style={{ ...s.cardNotaAlocada, opacity: 0.5, border: '2px dashed var(--color-primary)', backgroundColor: 'transparent', color: 'transparent', pointerEvents: 'none' }}>+</div>
+            ))
+          )}
+
+          {/* O campo cinza de adicionar nota manualmente some em todas as
+              linhas enquanto há um arraste em andamento OU notas selecionadas,
+              e volta quando solta / desmarca. */}
+          <input
+            type="text"
+            placeholder="+"
+            style={{ ...s.inputNotaManual, ...(draggingIds.length > 0 || notasSelecionadas.length > 0 ? { display: 'none' } : {}) }}
+            onClick={(e) => e.stopPropagation()}
+            onInput={limitarNotaManual}
+            onKeyDown={(e) => handleAdicionarNotaManual(e, index)}
+          />
         </div>
         <div
           style={{ ...s.textoLetra, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', minHeight: '32px', textAlign: 'center' }}
@@ -1373,7 +1467,7 @@ export default function MontarTablatura() {
     return (
       <button
         type="button"
-        style={{ ...s.overlayFocoSeta, ...(setasFocoEmbaixo ? { flex: 1 } : { alignSelf: 'center' }), ...(desabilitada ? s.overlayFocoSetaOff : {}) }}
+        style={{ ...s.overlayFocoSeta, ...(setasFocoEmbaixo ? { flex: 1 } : { alignSelf: 'stretch' }), ...(desabilitada ? s.overlayFocoSetaOff : {}) }}
         onClick={() => setLinhaFocoIndex(linhaFocoSegura + direcao)}
         disabled={desabilitada}
         title={rotulo}
@@ -1609,7 +1703,7 @@ export default function MontarTablatura() {
 
         {/* COLUNA DIREITA (Sticky com Scroll Interno; empilha no fluxo normal
             abaixo de BP_STACK) */}
-        <div style={{
+        <div ref={areaTablaturaRef} style={{
           ...s.columnBox, position: isStacked ? 'static' : 'sticky', top: '110px',
           height: isStacked ? 'auto' : 'calc(100vh - 140px)',
           ...(isStacked ? { flex: 'none', width: '100%', minWidth: 0 } : { flex: 1.2 }),
@@ -1647,34 +1741,22 @@ export default function MontarTablatura() {
             </>
           ) : (
             <>
-              {/* Empilhado: player compacto — play à esquerda, barra no meio,
-                  velocidade à direita. Com título + autor da música, e a
-                  engrenagem de configuração da gaita à direita do título. */}
+              {/* Empilhado: player compacto igual ao overlay maximizado — play
+                  à esquerda, barra ocupando o resto (com velocidade + tempo
+                  abaixo dela) e a engrenagem de config da gaita à direita,
+                  esticada na mesma altura da barra + tempo. Título e autor
+                  centralizados, sem nada ao lado. */}
               <div style={{ marginBottom: '16px', borderBottom: 'var(--border-width-base) solid var(--color-border-alt)', paddingBottom: '14px', flexShrink: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <h2 style={{ color: 'var(--color-text-main)', margin: '0 0 2px', fontSize: 'clamp(18px, 5vw, 24px)', fontWeight: 'bold' }}>{nome}</h2>
-                    <span style={{ color: 'var(--color-text-muted)', fontSize: '13px' }}>{autor}</span>
-                  </div>
-                  <button
-                    type="button"
-                    style={{ ...s.btnMaximizarStyle, ...(isCoarse ? { width: '36px', height: '36px' } : {}), flexShrink: 0 }}
-                    onClick={() => setModalConfigAberto(true)}
-                    title="Configurações da gaita (tipo e tom)"
-                    aria-label="Configurações da gaita"
-                  >
-                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="3" />
-                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                    </svg>
-                  </button>
+                <div style={{ textAlign: 'center' }}>
+                  <h2 style={{ color: 'var(--color-text-main)', margin: '0 0 4px', fontSize: 'clamp(24px, 6vw, 34px)', fontWeight: 'bold' }}>{nome}</h2>
+                  <span style={{ color: 'var(--color-text-muted)', fontSize: '17px' }}>{autor}</span>
                 </div>
 
                 {partesAdicionadas.length > 0 && (
-                  <div style={{ ...s.overlayFocoHeader, marginTop: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'stretch', gap: '10px', marginTop: '12px' }}>
                     <button
                       type="button"
-                      style={s.btnPlayIconeFoco}
+                      style={{ ...s.btnPlayIconeFoco, height: 'auto', minHeight: '48px', alignSelf: 'stretch' }}
                       onClick={handleBtnPlayClick}
                       title={playingId === 'ALL' && isPlaying ? 'Pausar música' : 'Tocar música'}
                       aria-label={playingId === 'ALL' && isPlaying ? 'Pausar música' : 'Tocar música'}
@@ -1682,31 +1764,22 @@ export default function MontarTablatura() {
                       {playingId === 'ALL' && isPlaying ? '⏸' : '▶'}
                     </button>
 
-                    <div style={s.overlayFocoBarraWrap}>
-                      <div
-                        style={{ ...s.barraFundo, marginTop: 0, ...(isCoarse ? { height: '20px', touchAction: 'none' } : {}) }}
-                        onMouseDown={(e) => handleBarraMouseDown(e, 'ALL')}
-                        onTouchStart={(e) => handleBarraTouchStart(e, 'ALL')}
-                      >
-                        <div style={{ ...s.barraProgresso, width: `${arrastandoBarra ? percentArrasto : (playingId === 'ALL' ? progress : 0)}%` }} />
-                        <div style={{ ...s.barraThumb, ...(isCoarse ? { width: '22px', height: '22px' } : {}), left: `${arrastandoBarra ? percentArrasto : (playingId === 'ALL' ? progress : 0)}%` }} />
-                      </div>
-                      <div style={{ ...s.tempoLabel, marginTop: '4px' }}>
-                        {formatarTempo(arrastandoBarra ? (percentArrasto / 100) * duration : (playingId === 'ALL' ? tempoAtual : 0))} / {formatarTempo(duration)}
-                      </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {renderBarraProgresso({ semMargemTopo: true })}
                     </div>
 
-                    <select
-                      style={s.overlayFocoVelocidade}
-                      onChange={(e) => changeSpeed(parseFloat(e.target.value))}
-                      value={playbackSpeed}
-                      aria-label="Velocidade de reprodução"
-                      title="Velocidade de reprodução"
+                    <button
+                      type="button"
+                      style={{ ...s.btnPlayIconeFoco, height: 'auto', minHeight: '48px', alignSelf: 'stretch', backgroundColor: 'var(--color-border-alt)', color: 'var(--color-text-muted)', boxShadow: 'none' }}
+                      onClick={() => setModalConfigAberto(true)}
+                      title="Configurações da gaita (tipo e tom)"
+                      aria-label="Configurações da gaita"
                     >
-                      <option value={1}>1x</option>
-                      <option value={0.5}>0.5x</option>
-                      <option value={0.25}>0.25x</option>
-                    </select>
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                      </svg>
+                    </button>
                   </div>
                 )}
               </div>
@@ -1822,7 +1895,7 @@ export default function MontarTablatura() {
           {/* Cabeçalho: play (esquerda) + barra/velocidade + botão de
               restaurar (direita) — os dois botões iguais e altos. Sem o
               título "Partes Ativas". */}
-          <div style={{ ...s.overlayBarraWrap, display: 'flex', alignItems: 'stretch', gap: '10px', marginBottom: '14px' }}>
+          <div style={{ ...s.overlayBarraWrap, display: 'flex', alignItems: 'stretch', gap: '10px', marginBottom: '14px', paddingBottom: '14px', borderBottom: 'var(--border-width-base) solid var(--color-border-alt)' }}>
             {partesAdicionadas.length > 0 && midiSelecionado ? (
               <>
                 <button
@@ -1841,35 +1914,37 @@ export default function MontarTablatura() {
             ) : (
               <div style={{ flex: 1 }} />
             )}
-            <button
-              type="button"
-              style={{ ...s.btnPlayIconeFoco, height: 'auto', minHeight: '48px', alignSelf: 'stretch', backgroundColor: 'var(--color-border-alt)', color: 'var(--color-text-muted)', boxShadow: 'none' }}
-              onClick={() => setPartesMaximizado(false)}
-              title="Voltar ao tamanho padrão"
-              aria-label="Voltar ao tamanho padrão"
-            >
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="4 14 10 14 10 20" />
-                <polyline points="20 10 14 10 14 4" />
-                <line x1="14" y1="10" x2="21" y2="3" />
-                <line x1="3" y1="21" x2="10" y2="14" />
-              </svg>
-            </button>
-          </div>
-
-          {/* "Resetar Volumes" agora também vive dentro do maximizado. */}
-          {partesAdicionadas.length > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px', flexShrink: 0 }}>
+            {/* Coluna à direita: minimizar em cima, resetar volumes embaixo,
+                dividindo a altura que o botão de minimizar ocupava sozinho. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignSelf: 'stretch', minHeight: '48px', flexShrink: 0 }}>
               <button
                 type="button"
-                style={s.btnResetVolumesStyle}
-                onClick={() => resetarVolumes(partesAdicionadas.map(p => p.id))}
-                title="Restaura o volume de todas as partes para o máximo"
+                style={{ ...s.btnPlayIconeFoco, width: '48px', height: 'auto', flex: 1, minHeight: '20px', backgroundColor: 'var(--color-border-alt)', color: 'var(--color-text-muted)', boxShadow: 'none' }}
+                onClick={() => setPartesMaximizado(false)}
+                title="Voltar ao tamanho padrão"
+                aria-label="Voltar ao tamanho padrão"
               >
-                ↺ Resetar Volumes
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="4 14 10 14 10 20" />
+                  <polyline points="20 10 14 10 14 4" />
+                  <line x1="14" y1="10" x2="21" y2="3" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
               </button>
+              {partesAdicionadas.length > 0 && (
+                <button
+                  type="button"
+                  style={{ ...s.btnPlayIconeFoco, width: '48px', height: 'auto', flex: 1, minHeight: '20px', fontSize: '20px', backgroundColor: 'var(--color-border-alt)', color: 'var(--color-text-muted)', boxShadow: 'none' }}
+                  onClick={() => resetarVolumes(partesAdicionadas.map(p => p.id))}
+                  title="Restaura o volume de todas as partes para o máximo"
+                  aria-label="Resetar volumes"
+                >
+                  ↺
+                </button>
+              )}
             </div>
-          )}
+          </div>
+
           <div style={s.overlayListaWrap}>
             {renderListaPartes()}
           </div>

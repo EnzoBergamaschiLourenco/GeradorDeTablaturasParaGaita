@@ -30,7 +30,7 @@ export const campoTomGaitaWrap = { flex: '0 0 76px', width: '76px' };
 export const inputTipoGaitaCompacto = { width: '100%', padding: '9px 10px', borderRadius: '10px', border: 'var(--border-width-base) solid var(--color-border)', fontSize: '13px', outline: 'none', backgroundColor: 'var(--color-bg-card)', color: 'var(--color-text-main)', cursor: 'pointer', boxSizing: 'border-box' };
 export const inputTomGaitaCompacto = { width: '100%', padding: '9px 4px', borderRadius: '10px', border: 'var(--border-width-base) solid var(--color-border)', fontSize: '13px', textAlign: 'center', outline: 'none', backgroundColor: 'var(--color-bg-card)', color: 'var(--color-text-main)', cursor: 'pointer', boxSizing: 'border-box' };
 
-export const selectVelocidadeCompacto = { flexShrink: 0, width: '58px', padding: '6px 4px', borderRadius: '8px', border: 'var(--border-width-base) solid var(--color-border)', fontSize: '12px', textAlign: 'center', outline: 'none', backgroundColor: 'var(--color-bg-card)', color: 'var(--color-text-main)', cursor: 'pointer', boxSizing: 'border-box' };
+export const selectVelocidadeCompacto = { flexShrink: 0, width: '58px', padding: '2px 4px', borderRadius: '8px', border: 'var(--border-width-base) solid var(--color-border)', fontSize: '12px', lineHeight: 1.1, textAlign: 'center', outline: 'none', backgroundColor: 'var(--color-bg-card)', color: 'var(--color-text-main)', cursor: 'pointer', boxSizing: 'border-box' };
 
 export const linhaBotoesConfig = { display: 'flex', gap: '10px' };
 export const btnLimparConfig = { flex: 1, padding: '10px 12px', backgroundColor: 'var(--color-border-alt)', color: 'var(--color-text-muted)', border: 'none', borderRadius: '10px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' };
@@ -53,11 +53,9 @@ export const overlayListaWrap = { flex: 1, minHeight: 0, overflowY: 'auto', widt
 // Reaproveitado do antigo "foco numa parte". No empilhado a coluna direita
 // vira: player enxuto (velocidade · play só ícone · barra) + navegação de
 // UMA linha por vez com setas.
-export const overlayFocoHeader = { display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 };
-// play e velocidade: mesma "pegada" quadrada (48px).
+// play só ícone: "pegada" quadrada (48px). Usado no player empilhado e no
+// overlay maximizado de "Partes Ativas".
 export const btnPlayIconeFoco = { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '48px', height: '48px', flexShrink: 0, padding: 0, fontSize: '17px', lineHeight: 1, backgroundColor: 'var(--color-primary)', color: 'var(--color-text-on-primary)', border: 'none', borderRadius: '12px', cursor: 'pointer', boxShadow: '0 2px 6px var(--shadow-button-primary-soft)' };
-export const overlayFocoVelocidade = { width: '48px', height: '48px', flexShrink: 0, padding: '4px', borderRadius: '12px', border: 'var(--border-width-base) solid var(--color-border)', backgroundColor: 'var(--color-bg-card)', color: 'var(--color-text-main)', fontSize: '12px', fontWeight: 'bold', textAlign: 'center', textAlignLast: 'center', appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' };
-export const overlayFocoBarraWrap = { flex: 1, minWidth: 0 };
 export const overlayFocoSecaoTitulo = { margin: 0, fontSize: '13px', fontWeight: 'bold', color: 'var(--color-text-muted)', flexShrink: 0 };
 
 // Parte ativa específica mostrada acima do "Montar tablatura" (empilhado):
@@ -78,7 +76,11 @@ export const overlayFocoNotasCompacta = { marginTop: '10px', maxHeight: '30vh', 
 export const overlayFocoLinhaWrap = { flex: '2 1 0', minHeight: 0, display: 'flex', alignItems: 'stretch', gap: '8px' };
 export const overlayFocoLinhaWrapColuna = { flexDirection: 'column' };
 export const overlayFocoSetasRow = { display: 'flex', gap: '8px', flexShrink: 0 };
-export const overlayFocoLinhaConteudo = { flex: 1, minWidth: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '12px', backgroundColor: 'var(--color-bg-card-tertiary)', border: 'var(--border-width-base) solid var(--color-border-alt)', borderRadius: '12px' };
+// justifyContent: 'safe center' — centraliza a linha quando cabe, mas quando
+// a linha tem muitas notas e quebra em várias fileiras (celular), volta a
+// alinhar no topo em vez de estourar pra fora: senão as primeiras fileiras
+// ficam acima da área visível e a rolagem não alcança elas.
+export const overlayFocoLinhaConteudo = { flex: 1, minWidth: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', justifyContent: 'safe center', padding: '12px', backgroundColor: 'var(--color-bg-card-tertiary)', border: 'var(--border-width-base) solid var(--color-border-alt)', borderRadius: '12px' };
 export const overlayFocoSeta = { flexShrink: 0, width: '44px', minHeight: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, backgroundColor: 'var(--color-bg-card-alt)', color: 'var(--color-primary)', border: 'var(--border-width-base) solid var(--color-border-alt)', borderRadius: '12px', cursor: 'pointer' };
 export const overlayFocoSetaOff = { opacity: 0.35, cursor: 'not-allowed', color: 'var(--color-text-muted)' };
 
